@@ -25,6 +25,13 @@ export function buildCashCutReport({ cashRegister = {}, invoices = [], creditNot
   const expected = roundMoney(movements.reduce((sum, movement) => sum + cashMovementSignedAmount(movement), 0))
   const branch = branches.find((item) => item.id === cashRegister.branchId)
 
+  const expectedByMethod = movements.reduce((map, movement) => {
+    const method = movement.method === 'Reversa' || movement.method === 'Reembolso' ? 'Efectivo' : normalizeMethod(movement.method)
+    const signed = cashMovementSignedAmount(movement)
+    map[method] = roundMoney((map[method] || 0) + signed)
+    return map
+  }, {})
+
   return {
     companyName: company.name || company.legalName || '',
     rnc: company.rnc || '',
@@ -35,8 +42,12 @@ export function buildCashCutReport({ cashRegister = {}, invoices = [], creditNot
     closedAt: cashRegister.closedAt || '',
     openingAmount: Number(cashRegister.openingAmount || 0),
     expected,
+    expectedByMethod,
+    expectedCash: roundMoney((expectedByMethod['Efectivo'] || 0)),
+    expectedCard: roundMoney((expectedByMethod['Tarjeta'] || 0)),
+    expectedTransfer: roundMoney((expectedByMethod['Transferencia'] || 0)),
     counted,
-    difference: counted - expected,
+    difference: counted - roundMoney((expectedByMethod['Efectivo'] || 0)),
     grossSales,
     returns,
     discounts,
@@ -73,7 +84,7 @@ export function cashMovementSignedAmount(movement) {
 }
 
 function summarizeMethods(invoices, creditNotes) {
-  const map = new Map(CASH_METHODS.map((method) => [method, { method, sales: 0, refunds: 0, net: 0, count: 0 }]))
+  const map = new Map()
   invoices.forEach((invoice) => {
     const payments = invoice.payments?.length ? invoice.payments : [{ method: invoice.paymentMethod || 'Efectivo', amount: invoice.totals?.total || 0 }]
     payments.forEach((payment) => {
@@ -119,7 +130,8 @@ function normalizeMethod(method = '') {
   if (value.includes('tarjeta')) return 'Tarjeta'
   if (value.includes('transfer')) return 'Transferencia'
   if (value.includes('credito') || value.includes('crédito')) return 'Credito'
-  return 'Efectivo'
+  if (value === 'efectivo' || value === 'cash' || value === 'reversa' || value === 'reembolso') return 'Efectivo'
+  return method || 'Efectivo'
 }
 
 function parseDate(value) {

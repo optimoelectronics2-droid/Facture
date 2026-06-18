@@ -162,11 +162,13 @@ export function InvoiceForm({ initialInvoice, duplicateOf, onDone }) {
     if (form.ncfType !== 'NO_FISCAL') assertValidTaxSequence(sequence)
     const originalIds = new Set((editingIssued ? initialInvoice?.items || [] : []).map((item) => item.productId))
     form.items.forEach((item) => {
-      const product = products.find((productItem) => productItem.id === item.productId)
-      if (!product) throw new Error(`Producto invalido: ${item.name || 'sin nombre'}.`)
-      if (Number(item.quantity || 0) <= 0) throw new Error(`La cantidad de ${item.name} debe ser mayor que cero.`)
-      if (!originalIds.has(item.productId) && product.category !== 'Servicios' && Number(product.stock || 0) < Number(item.quantity || 0)) throw new Error(`${product.name} no tiene stock suficiente. Disponible: ${product.stock || 0}.`)
-      if (product.requiresSerial && (item.serials || []).length !== Number(item.quantity)) throw new Error(`${product.name} requiere seleccionar ${item.quantity} serial(es).`)
+      if (!editingIssued || !originalIds.has(item.productId)) {
+        const product = products.find((productItem) => productItem.id === item.productId)
+        if (!product) throw new Error(`Producto invalido: ${item.name || 'sin nombre'}.`)
+        if (Number(item.quantity || 0) <= 0) throw new Error(`La cantidad de ${item.name} debe ser mayor que cero.`)
+        if (!editingIssued && product.category !== 'Servicios' && Number(product.stock || 0) < Number(item.quantity || 0)) throw new Error(`${product.name} no tiene stock suficiente. Disponible: ${product.stock || 0}.`)
+        if (product.requiresSerial && (item.serials || []).length !== Number(item.quantity)) throw new Error(`${product.name} requiere seleccionar ${item.quantity} serial(es).`)
+      }
     })
   }
 

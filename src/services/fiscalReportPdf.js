@@ -38,6 +38,7 @@ export function buildFiscalReportGroups(invoices) {
   const buckets = buildFiscalBuckets(active)
   return Object.values(fiscalReportTypes).map((type) => {
     const groupInvoices = active.filter((invoice) => invoice.mode === type.mode)
+    const split = cashCreditSplit(groupInvoices)
     return {
       ...type,
       bucket: buckets[type.id],
@@ -46,30 +47,58 @@ export function buildFiscalReportGroups(invoices) {
       customers: uniqueCount(groupInvoices.map((invoice) => invoice.customerId || invoice.customerName)),
       payments: summarizePayments(groupInvoices),
       products: summarizeProducts(groupInvoices),
+      cashCreditSplit: split,
     }
   })
+}
+
+function cashCreditSplit(invoices) {
+  let cashTotal = 0, creditTotal = 0, cashCount = 0, creditCount = 0
+  let creditPaid = 0, creditPending = 0
+  invoices.forEach((inv) => {
+    const payments = inv.payments?.length ? inv.payments : [{ method: inv.paymentMethod || 'Efectivo', amount: inv.totals?.total || 0 }]
+    const hasCredit = payments.some((p) => isCreditPayment(p.method))
+    const total = Number(inv.totals?.total || 0)
+    const paid = Number(inv.paidAmount || 0)
+    if (hasCredit) {
+      creditTotal += total
+      creditCount += 1
+      creditPaid += paid
+      creditPending += Math.max(0, total - paid)
+    } else {
+      cashTotal += total
+      cashCount += 1
+    }
+  })
+  return { cashTotal, creditTotal, cashCount, creditCount, creditPaid, creditPending }
+}
+
+function isCreditPayment(method = '') {
+  const m = String(method || '').toLowerCase()
+  return m.includes('credito') || m.includes('crédito')
 }
 
 export async function downloadFiscalReportPdf({ company, group }) {
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4', compress: true })
   const generatedAt = new Date()
+  const groupWithSplit = { ...group, cashCreditSplit: group.cashCreditSplit || cashCreditSplit(group.invoices || []) }
   const qr = await QRCode.toDataURL(JSON.stringify({
     company: company?.name || 'Trifusion Technologies',
-    report: group.title,
+    report: groupWithSplit.title,
     generatedAt: generatedAt.toISOString(),
-    invoices: group.invoices.length,
-    total: group.bucket.total,
+    invoices: groupWithSplit.invoices.length,
+    total: groupWithSplit.bucket.total,
   }), { margin: 1, width: 96 })
 
-  drawCover(doc, company, group, generatedAt, qr)
+  drawCover(doc, company, groupWithSplit, generatedAt, qr)
   doc.addPage()
-  drawSummary(doc, company, group, generatedAt, qr)
+  drawSummary(doc, company, groupWithSplit, generatedAt, qr)
   doc.addPage()
-  drawInvoiceTable(doc, company, group, generatedAt, qr)
+  drawInvoiceTable(doc, company, groupWithSplit, generatedAt, qr)
   doc.addPage()
-  drawItemTable(doc, company, group, generatedAt, qr)
-  addPageFooters(doc, company, group, generatedAt, qr)
-  doc.save(`${group.file}-${stamp(generatedAt)}.pdf`)
+  drawItemTable(doc, company, groupWithSplit, generatedAt, qr)
+  addPageFooters(doc, company, groupWithSplit, generatedAt, qr)
+  doc.save(`${groupWithSplit.file}-${stamp(generatedAt)}.pdf`)
 }
 
 export async function downloadAllFiscalReportPdfs({ company, invoices }) {
@@ -105,18 +134,31 @@ function drawCover(doc, company, group, generatedAt, qr) {
 function drawSummary(doc, company, group, generatedAt, qr) {
   drawHeader(doc, company, group, generatedAt, qr)
   drawMetricCards(doc, group, 12, 30)
+  const split = group.cashCreditSplit || {}
+  const bodyRows = group.id === 'noTax'
+    ? [
+        ['Cantidad de facturas', String(group.bucket.count)],
+        ['Clientes unicos', String(group.customers)],
+        ['Productos vendidos', String(group.items.reduce((sum, item) => sum + item.cantidad, 0))],
+        ['Total Bruto', money.format(group.bucket.total)],
+        ['Al Contado Neto', money.format(split.cashTotal || 0)],
+        ['A Credito Neto', money.format(split.creditTotal || 0)],
+        ['Cobrado de Creditos', money.format(split.creditPaid || 0)],
+        ['Pendiente de Creditos', money.format(split.creditPending || 0)],
+      ]
+    : [
+        ['Cantidad de facturas', String(group.bucket.count)],
+        ['Clientes unicos', String(group.customers)],
+        ['Productos vendidos', String(group.items.reduce((sum, item) => sum + item.cantidad, 0))],
+        ['Subtotal', money.format(group.bucket.subtotal)],
+        ['ITBIS total', money.format(group.bucket.itbis)],
+        ['Total final', money.format(group.bucket.total)],
+        ['Ganancia calculada', money.format(group.bucket.profit)],
+      ]
   autoTable(doc, {
     startY: 74,
     head: [['Indicador', 'Valor']],
-    body: [
-      ['Cantidad de facturas', group.bucket.count],
-      ['Clientes unicos', group.customers],
-      ['Productos vendidos', group.items.reduce((sum, item) => sum + item.cantidad, 0)],
-      ['Subtotal', money.format(group.id === 'noTax' ? group.bucket.total : group.bucket.subtotal)],
-      ['ITBIS total', money.format(group.id === 'noTax' ? 0 : group.bucket.itbis)],
-      ['Total final', money.format(group.bucket.total)],
-      ['Ganancia calculada', money.format(group.bucket.profit)],
-    ],
+    body: bodyRows,
     styles: tableStyle(),
     headStyles: headStyle(group),
     alternateRowStyles: { fillColor: [247, 249, 252] },
@@ -207,12 +249,20 @@ function drawHeader(doc, company, group, generatedAt, qr) {
 }
 
 function drawMetricCards(doc, group, x, y) {
-  const cards = [
-    ['Facturas', String(group.bucket.count)],
-    ['Subtotal', money.format(group.id === 'noTax' ? group.bucket.total : group.bucket.subtotal)],
-    ['ITBIS', money.format(group.id === 'noTax' ? 0 : group.bucket.itbis)],
-    ['Total', money.format(group.bucket.total)],
-  ]
+  const split = group.cashCreditSplit || { cashTotal: 0, creditTotal: 0, creditPaid: 0, creditPending: 0 }
+  const cards = group.id === 'noTax'
+    ? [
+        ['Total Bruto', money.format(group.bucket.total)],
+        ['Al Contado', money.format(split.cashTotal)],
+        ['Credito Vendido', money.format(split.creditTotal)],
+        ['Deuda Pendiente', money.format(split.creditPending)],
+      ]
+    : [
+        ['Facturas', String(group.bucket.count)],
+        ['Subtotal', money.format(group.bucket.subtotal)],
+        ['ITBIS', money.format(group.bucket.itbis)],
+        ['Total', money.format(group.bucket.total)],
+      ]
   cards.forEach((card, index) => {
     const left = x + (index * 66)
     doc.setFillColor(255, 255, 255)

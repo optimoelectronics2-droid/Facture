@@ -1,4 +1,4 @@
-async function buildCleanInvoicePdf() {
+export async function buildCleanInvoicePdf() {
   const source = document.getElementById('invoice-preview')
   if (!source) return null
   const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([import('html2canvas'), import('jspdf')])

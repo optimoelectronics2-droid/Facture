@@ -416,6 +416,7 @@ export const useERPStore = create(
         const products = get().products
         const sku = product.sku?.trim() || buildSku(product.name)
         if (!product.name?.trim()) throw new Error('El nombre del producto es obligatorio.')
+        if (!product.barcode?.trim()) product = { ...product, barcode: buildBarcode() }
         if (products.some((item) => item.sku?.toLowerCase() === sku.toLowerCase() && item.id !== product.id)) {
           throw new Error(`El SKU ${sku} ya existe. Use otro SKU.`)
         }
@@ -842,6 +843,7 @@ export const useERPStore = create(
         const sequence = normalizedInvoiceData.ncfType && normalizedInvoiceData.ncfType !== 'NO_FISCAL' ? get().taxSequences.find((item) => item.id === normalizedInvoiceData.ncfType) : null
         if (normalizedInvoiceData.ncfType && normalizedInvoiceData.ncfType !== 'NO_FISCAL' && !sequence) throw new Error(`Configure la secuencia fiscal ${normalizedInvoiceData.ncfType}.`)
         if (sequence) assertValidTaxSequence(sequence)
+        if (normalizedInvoiceData.ncf && get().invoices.some((invoice) => invoice.ncf === normalizedInvoiceData.ncf)) throw new Error(`El NCF ${normalizedInvoiceData.ncf} ya existe en otra factura.`)
         const fiscalNumber = sequence ? nextNcf(sequence) : get().nextDocumentNumber('FAC')
         const issuedAt = now()
         const existingInvoices = get().invoices
@@ -993,7 +995,7 @@ export const useERPStore = create(
         if (!invoiceData.items?.length) throw new Error('Agregue al menos un producto o servicio.')
         const maxDiscount = Math.min(Number(state.settings.maxDiscountPercent || 10), 10)
         if (toNumber(invoiceData.globalDiscount) > maxDiscount) throw new Error(`El descuento global supera el maximo permitido de ${maxDiscount}%.`)
-        const items = applyGlobalDiscount(invoiceData)
+        const items = freezeInvoiceItemCosts(applyGlobalDiscount(invoiceData), state.products, previous)
         const totals = calculateInvoice(items, invoiceData.mode || previous.mode || invoiceModes.TAXED)
         const payments = normalizePayments(invoiceData.payments, invoiceData.paymentMethod, totals.total, invoiceData.paymentPlan)
         const paymentTotal = payments.reduce((sum, payment) => sum + toNumber(payment.amount), 0)
@@ -1002,7 +1004,7 @@ export const useERPStore = create(
         if (invoiceData.ncf && state.invoices.some((invoice) => invoice.id !== invoiceId && invoice.ncf === invoiceData.ncf)) throw new Error(`El NCF ${invoiceData.ncf} ya existe en otra factura.`)
         if (invoiceData.number && state.invoices.some((invoice) => invoice.id !== invoiceId && invoice.number === invoiceData.number)) throw new Error(`El numero ${invoiceData.number} ya existe en otra factura.`)
 
-        validateEditableInvoiceItems({ items, previous, products: state.products, maxDiscount })
+        validateEditableInvoiceItems({ items, products: state.products, maxDiscount, originalProductIds: new Set((previous.items || []).map((item) => item.productId).filter(Boolean)) })
         const nextInvoice = {
           ...previous,
           ...invoiceData,
@@ -1149,18 +1151,18 @@ export const useERPStore = create(
             ...state.cashRegister,
             expected: state.cashRegister.expected - nonCreditCash - paidCash,
             movements: [
-              ...(nonCreditCash > 0 ? [{
+              ...(invoice.payments || []).filter((payment) => payment.method !== 'Credito').map((payment) => ({
                 id: id('cashmov'),
                 type: 'invoice_void_reversal',
-                amount: nonCreditCash,
-                method: 'Reversa',
+                amount: toNumber(payment.amount),
+                method: payment.method || 'Efectivo',
                 concept: `Anulacion factura ${invoice.number}`,
                 reference: invoice.id,
                 invoiceId: invoice.id,
                 source: 'invoice',
                 status: 'active',
                 createdAt: now(),
-              }] : []),
+              })),
               ...relatedPayments.map((payment) => ({
                 id: id('cashmov'),
                 type: 'payment_void_reversal',
@@ -1397,7 +1399,8 @@ export const useERPStore = create(
       deleteQuote(quoteId) {
         const quote = get().quotes.find((item) => item.id === quoteId)
         if (!quote) throw new Error('La cotizacion no existe.')
-        set((state) => ({ quotes: state.quotes.filter((item) => item.id !== quoteId) }))
+        const relatedVersions = new Set((quote.versions || []).map((item) => item.id).filter(Boolean))
+        set((state) => ({ quotes: state.quotes.filter((item) => item.id !== quoteId && !relatedVersions.has(item.id)) }))
         get().refreshReportStats()
         get().addAudit('quote.delete', 'Cotizaciones', quote, null)
       },
@@ -1405,8 +1408,21 @@ export const useERPStore = create(
       newQuoteVersion(quoteId) {
         const quote = get().quotes.find((item) => item.id === quoteId)
         if (!quote) throw new Error('La cotizacion no existe.')
-        const versioned = { ...quote, version: toNumber(quote.version) + 1, status: 'Borrador', versions: [...(quote.versions || []), { ...quote, archivedAt: now() }], updatedAt: now() }
-        set((state) => ({ quotes: state.quotes.map((item) => (item.id === quoteId ? versioned : item)) }))
+        const archived = { ...quote, archivedAt: now() }
+        const versioned = {
+          ...quote,
+          id: id('quote'),
+          number: get().nextDocumentNumber('COT'),
+          sourceQuoteId: quote.sourceQuoteId || quote.id,
+          previousQuoteId: quote.id,
+          version: toNumber(quote.version || 1) + 1,
+          status: 'Borrador',
+          invoiceId: '',
+          versions: [...(quote.versions || []), archived],
+          createdAt: now(),
+          updatedAt: now(),
+        }
+        set((state) => ({ quotes: [versioned, ...state.quotes.map((item) => (item.id === quoteId ? { ...item, status: item.status === 'Convertida' ? item.status : 'Versionada', updatedAt: now() } : item))] }))
         get().refreshReportStats()
         get().addAudit('quote.version', 'Cotizaciones', quote.version, versioned.version)
         return versioned
@@ -2265,6 +2281,12 @@ function buildSku(name = 'PRODUCTO') {
   return `${prefix}-${Date.now().toString(36).toUpperCase().slice(-5)}`
 }
 
+function buildBarcode() {
+  const timestamp = Date.now().toString().slice(-8)
+  const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0')
+  return `2${timestamp}${random}`
+}
+
 function applyGlobalDiscount(invoiceData) {
   const globalDiscount = toNumber(invoiceData.globalDiscount)
   return (invoiceData.items || []).map((item) => ({ ...item, discount: toNumber(item.discount) + globalDiscount }))
@@ -2315,7 +2337,7 @@ function buildInvoicePaymentSummary(payments = [], total = 0) {
   const paid = moneyValue(payments.filter((payment) => payment.method !== CREDIT_PAYMENT_METHOD).reduce((sum, payment) => sum + toNumber(payment.amount), 0))
   const credit = moneyValue(payments.filter((payment) => payment.method === CREDIT_PAYMENT_METHOD).reduce((sum, payment) => sum + toNumber(payment.amount), 0))
   const balance = moneyValue(Math.max(credit, invoiceTotal - paid))
-  if (balance <= 0) return { paid: invoiceTotal, credit: 0, balance: 0, status: 'paid', paymentStatus: 'paid', plan: 'contado' }
+  if (balance <= 0) return { paid, credit: 0, balance: 0, status: 'paid', paymentStatus: 'paid', plan: 'contado' }
   if (paid > 0) return { paid, credit: balance, balance, status: 'partial', paymentStatus: 'partial', plan: 'credito' }
   return { paid: 0, credit: balance, balance, status: 'credit', paymentStatus: 'pending', plan: 'fiado' }
 }
@@ -2326,25 +2348,6 @@ function normalizeSerials(item) {
 
 function isStockProduct(product) {
   return product && product.category !== 'Servicios'
-}
-
-function invoiceLinesForProduct(invoice, productId) {
-  return (invoice.items || []).filter((item) => item.productId === productId)
-}
-
-function productQuantityFromInvoice(invoice, productId) {
-  return invoiceLinesForProduct(invoice, productId).reduce((sum, item) => sum + toNumber(item.quantity), 0)
-}
-
-function productSerialsFromInvoice(invoice, productId) {
-  return invoiceLinesForProduct(invoice, productId).flatMap(normalizeSerials)
-}
-
-function averageLineCost(invoice, productId) {
-  const lines = invoiceLinesForProduct(invoice, productId)
-  const quantity = lines.reduce((sum, line) => sum + toNumber(line.quantity), 0)
-  if (quantity <= 0) return 0
-  return lines.reduce((sum, line) => sum + toNumber(line.cost) * toNumber(line.quantity), 0) / quantity
 }
 
 function sameSerialSet(left, right) {
@@ -2358,8 +2361,7 @@ function getCreditAmount(invoice) {
 }
 
 function getNonCreditAmount(invoice) {
-  const payments = invoice.payments?.length ? invoice.payments : [{ method: invoice.paymentMethod || 'Efectivo', amount: invoice.totals?.total || 0 }]
-  return moneyValue(payments.filter((payment) => payment.method !== CREDIT_PAYMENT_METHOD).reduce((sum, payment) => sum + toNumber(payment.amount), 0))
+  return moneyValue((invoice.payments || []).filter((payment) => payment.method !== CREDIT_PAYMENT_METHOD).reduce((sum, payment) => sum + toNumber(payment.amount), 0))
 }
 
 function stripInvoiceVersionHistory(invoice) {
@@ -2368,99 +2370,24 @@ function stripInvoiceVersionHistory(invoice) {
   return snapshot
 }
 
-function validateEditableInvoiceItems({ items, previous, products, maxDiscount }) {
+function validateEditableInvoiceItems({ items, products, maxDiscount, originalProductIds }) {
   const productIds = new Set(items.map((item) => item.productId).filter(Boolean))
   productIds.forEach((productId) => {
+    if (originalProductIds?.has(productId)) return
     const product = products.find((item) => item.id === productId)
     if (!product) throw new Error(`El producto ${productId} no existe.`)
     if (product.status === 'Inactivo' || product.status === 'Eliminado' || product.deletedAt) throw new Error(`${product.name} no esta disponible para facturar.`)
   })
   items.forEach((item) => {
     const product = products.find((productItem) => productItem.id === item.productId)
+    const productName = item.name || product?.name || item.productId || 'Producto'
+    if (toNumber(item.quantity) <= 0) throw new Error(`La cantidad de ${productName} debe ser mayor que cero.`)
+    if (toNumber(item.discount) > maxDiscount) throw new Error(`${productName} supera el descuento maximo permitido de ${maxDiscount}%.`)
+    if (originalProductIds?.has(item.productId) && !product) return
     if (!product) throw new Error(`Producto invalido: ${item.name || item.productId}.`)
-    if (toNumber(item.quantity) <= 0) throw new Error(`La cantidad de ${item.name || product.name} debe ser mayor que cero.`)
-    if (toNumber(item.discount) > maxDiscount) throw new Error(`${product.name} supera el descuento maximo permitido de ${maxDiscount}%.`)
-    const minimumPrice = Math.max(toNumber(product.cost), toNumber(item.registeredPrice || product.price) * 0.9)
-    if (toNumber(item.price) < minimumPrice) throw new Error(`${product.name} no puede venderse por debajo del costo ni con rebaja mayor al 10%.`)
     const serials = normalizeSerials(item)
     if (product.requiresSerial && serials.length !== toNumber(item.quantity)) throw new Error(`${product.name} requiere seleccionar ${item.quantity} serial(es).`)
   })
-}
-
-function reconcileInvoiceEditInventory(products, previous, nextInvoice, context = {}) {
-  const touchedIds = new Set([
-    ...(previous.items || []).map((item) => item.productId),
-    ...(nextInvoice.items || []).map((item) => item.productId),
-  ].filter(Boolean))
-  const movements = []
-  const nextProducts = products.map((product) => {
-    if (!touchedIds.has(product.id) || !isStockProduct(product)) return product
-    const oldQty = productQuantityFromInvoice(previous, product.id)
-    const newQty = productQuantityFromInvoice(nextInvoice, product.id)
-    const oldSerials = productSerialsFromInvoice(previous, product.id)
-    const nextSerials = productSerialsFromInvoice(nextInvoice, product.id)
-    const serialPool = [...new Set([...normalizeSerialList(product.serials || []), ...oldSerials])]
-    const before = toNumber(product.stock)
-    const afterReversal = before + oldQty
-    const after = afterReversal - newQty
-    if (oldQty > 0) {
-      movements.push(makeInventoryMovement({
-        id: id('mov'),
-        product,
-        type: inventoryMovementTypes.SALE_REVERSAL,
-        reason: 'Reversa automatica por edicion de factura',
-        quantity: oldQty,
-        quantityBefore: before,
-        quantityAfter: afterReversal,
-        cost: averageLineCost(previous, product.id),
-        serials: oldSerials,
-        date: today(),
-        createdAt: context.now || now(),
-        source: 'factura',
-        documentId: previous.id,
-        documentNumber: previous.ncf || previous.number,
-        reference: `Edicion ${nextInvoice.version || ''}`.trim(),
-        user: context.user || 'Sistema',
-        extra: { invoiceId: previous.id },
-      }))
-    }
-    if (newQty > 0) {
-      movements.push(makeInventoryMovement({
-        id: id('mov'),
-        product,
-        type: inventoryMovementTypes.SALE,
-        reason: 'Salida recalculada por edicion de factura',
-        quantity: newQty,
-        quantityBefore: afterReversal,
-        quantityAfter: after,
-        cost: averageLineCost(nextInvoice, product.id),
-        serials: nextSerials,
-        date: nextInvoice.issueDate || today(),
-        createdAt: context.now || now(),
-        source: 'factura',
-        documentId: nextInvoice.id,
-        documentNumber: nextInvoice.ncf || nextInvoice.number,
-        reference: `Edicion ${nextInvoice.version || ''}`.trim(),
-        user: context.user || 'Sistema',
-        extra: { invoiceId: nextInvoice.id },
-      }))
-    }
-    return {
-      ...product,
-      stock: after,
-      serials: serialPool.filter((serial) => !nextSerials.includes(serial)),
-      soldSerials: [
-        ...(product.soldSerials || []).filter((entry) => {
-          const serial = typeof entry === 'string' ? entry : entry?.serial
-          const invoiceId = typeof entry === 'string' ? null : entry?.invoiceId
-          return invoiceId !== previous.id && !oldSerials.includes(serial)
-        }),
-        ...nextSerials.map((serial) => ({ serial, invoiceId: nextInvoice.id, invoiceNumber: nextInvoice.number, customerId: nextInvoice.customerId, soldAt: now() })),
-      ],
-      updatedAt: now(),
-    }
-  })
-  return { products: nextProducts, movements }
 }
 
 function reconcileReceivables(receivables, invoiceId, nextReceivable) {

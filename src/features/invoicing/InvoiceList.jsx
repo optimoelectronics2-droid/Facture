@@ -377,7 +377,7 @@ function ActionDropdown({ invoice, customers, company, onView, onDownload, onEdi
         <MoreHorizontal size={15} />
       </button>
       {open ? (
-        <div className="absolute right-0 top-full z-50 mt-1 min-w-52 rounded-lg border p-1 shadow-2xl" style={{ borderColor: 'var(--line)', background: 'var(--bg-surface)' }} onMouseLeave={() => setOpen(false)}>
+        <div className="absolute right-0 top-full z-[9999] mt-1 min-w-52 rounded-lg border p-1 shadow-2xl" style={{ borderColor: 'var(--line)', background: 'var(--bg-surface)' }} onMouseLeave={() => setOpen(false)}>
           {groups.map((group, gi) => (
             <div key={group.label}>
               {gi > 0 ? <div className="my-1 border-t" style={{ borderColor: 'var(--line)' }} /> : null}
@@ -444,7 +444,7 @@ function PremiumInvoiceTable({ data, columns }) {
           </select>
           <button type="button" onClick={() => setColumnsOpen((value) => !value)} className="inline-flex min-h-10 items-center gap-2 rounded-lg border px-3 text-xs font-bold transition" style={{ borderColor: 'var(--line)', background: 'rgba(255,255,255,.04)', color: 'rgba(255,255,255,.7)' }}><Columns3 size={15} /> Columnas</button>
           {columnsOpen ? (
-            <div className="absolute right-0 top-12 z-20 grid min-w-56 gap-1 rounded-lg border p-2 shadow-2xl" style={{ borderColor: 'var(--line)', background: 'var(--bg-surface)' }}>
+            <div className="absolute right-0 top-12 z-[9999] grid min-w-56 gap-1 rounded-lg border p-2 shadow-2xl" style={{ borderColor: 'var(--line)', background: 'var(--bg-surface)' }}>
               {columns.map((column) => (
                 <label key={column.header} className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-white/[0.06]" style={{ color: 'rgba(255,255,255,.7)' }}>
                   <input id={"invoice-list-column-" + column.header} name={"invoice-list-column-" + column.header} type="checkbox" checked={visible.has(column.header)} onChange={() => toggleColumn(column.header)} />

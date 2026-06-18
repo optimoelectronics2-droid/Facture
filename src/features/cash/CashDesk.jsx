@@ -189,12 +189,12 @@ export function CashDesk() {
         <div className="printable-report panel rounded-lg p-4 sm:p-5">
           <h3 className="font-display text-xl font-bold">Corte de caja</h3>
           <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <Total label="Ventas" value={report.grossSales} />
-            <Total label="Balance calculado" value={report.expected} />
-            <Total label="Contado" value={report.counted} />
-            <Total label="Diferencia" value={report.difference} danger={Math.abs(report.difference) > 0.01} />
-            <Total label="Transferencias" value={report.byMethod.find((item) => item.method === 'Transferencia')?.net || 0} />
-            <Total label="Tarjetas" value={report.byMethod.find((item) => item.method === 'Tarjeta')?.net || 0} />
+            <Total label="Ventas totales" value={report.grossSales} />
+            <Total label="Esperado efectivo" value={report.expectedCash} />
+            <Total label="Efectivo contado" value={report.counted} />
+            <Total label="Diferencia efectivo" value={report.difference} danger={Math.abs(report.difference) > 0.01} />
+            <Total label="Esperado tarjetas" value={report.expectedCard} />
+            <Total label="Esperado tranferencias" value={report.expectedTransfer} />
             <Total label="Credito" value={report.byMethod.find((item) => item.method === 'Credito')?.net || 0} />
             <Total label="Notas credito" value={report.returns} />
           </div>

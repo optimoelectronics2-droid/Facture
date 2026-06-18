@@ -297,6 +297,11 @@ select {
 @media print {
   @page { size: letter; margin: 10mm; }
   @page invoice-page { size: letter; margin: 0; }
+  @page label-2x1 { size: 2in 1in; margin: 0; }
+  @page label-3x2 { size: 3in 2in; margin: 0; }
+  @page label-4x2 { size: 4in 2in; margin: 0; }
+  @page label-4x3 { size: 4in 3in; margin: 0; }
+  @page label-4x6 { size: 4in 6in; margin: 0; }
   nav, aside, .no-print { display: none !important; }
   html, body { background: white !important; }
   body * { visibility: hidden; }
@@ -328,6 +333,14 @@ select {
   .printable-report canvas {
     max-height: 230px !important;
   }
+  .label-grid { visibility: visible !important; }
+  .label-grid .label-item { visibility: visible !important; }
+  .label-grid .label-item * { visibility: visible !important; }
+  .label-print-2x1 .label-grid { page: label-2x1; }
+  .label-print-3x2 .label-grid { page: label-3x2; }
+  .label-print-4x2 .label-grid { page: label-4x2; }
+  .label-print-4x3 .label-grid { page: label-4x3; }
+  .label-print-4x6 .label-grid { page: label-4x6; }
 }
 
 @keyframes premium-spin {

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { currency, formatDate } from '../../lib/formatters'
 import { ncfTypes } from '../../lib/taxEngine'
 import { Button } from '../ui/Button'
-import { downloadCleanInvoicePdf, printCleanInvoicePdf } from './invoicePdf'
+import { buildCleanInvoicePdf, downloadCleanInvoicePdf, printCleanInvoicePdf } from './invoicePdf'
 
 const WARRANTY_POLICY = `NOTA DE LA GARANTÍA
 
@@ -242,17 +242,53 @@ function TotalLine({ label, value, strong }) {
   return <div className={`flex justify-between gap-3 ${strong ? 'border-t border-slate-950 pt-2 text-lg font-black text-slate-950' : 'text-slate-700'}`}><span>{label}</span><span>{currency.format(value || 0)}</span></div>
 }
 
-function Actions({ invoice, customer, company }) {
+async function sharePdfViaWhatsApp(invoice, customer, company) {
+  const pdf = await buildCleanInvoicePdf()
+  if (!pdf) return
   const phone = sanitizePhone(customer?.whatsapp || customer?.phone || company?.whatsapp || company?.phone)
   const companyName = company?.name || company?.legalName || 'Empresa'
+  const title = `factura-${displayInvoiceNumber(invoice)}`
+  const text = `${companyName}\nFactura ${displayInvoiceNumber(invoice)}\nTotal: ${currency.format(invoice.totals?.total || 0)}`
+  const blob = pdf.output('blob')
+  const file = new File([blob], `${title}.pdf`, { type: 'application/pdf' })
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file], title, text }); return } catch {}
+  }
+  downloadBlob(blob, `${title}.pdf`)
+  if (phone) window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text + `\n\nPDF descargado: ${title}.pdf`)}`)
+}
+
+async function sharePdfViaEmail(invoice, customer, company) {
+  const pdf = await buildCleanInvoicePdf()
+  if (!pdf) return
+  const companyName = company?.name || company?.legalName || 'Empresa'
+  const title = `factura-${displayInvoiceNumber(invoice)}`
   const subject = `Factura ${displayInvoiceNumber(invoice)} - ${companyName}`
-  const body = `${companyName}\nFactura ${displayInvoiceNumber(invoice)}\nTotal: ${currency.format(invoice.totals?.total || 0)}`
+  const text = `${companyName}\nFactura ${displayInvoiceNumber(invoice)}\nTotal: ${currency.format(invoice.totals?.total || 0)}`
+  const blob = pdf.output('blob')
+  const file = new File([blob], `${title}.pdf`, { type: 'application/pdf' })
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file], title: subject, text }); return } catch {}
+  }
+  downloadBlob(blob, `${title}.pdf`)
+  window.location.href = `mailto:${customer?.email || company?.email || ''}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text + `\n\nPDF adjunto: ${title}.pdf (descargar del enlace)`)}`
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url; a.download = filename; document.body.appendChild(a); a.click()
+  document.body.removeChild(a)
+  window.setTimeout(() => URL.revokeObjectURL(url), 5000)
+}
+
+function Actions({ invoice, customer, company }) {
   return (
     <div className="no-print flex flex-wrap justify-end gap-2">
       <Button variant="primary" icon={FileDown} onClick={() => downloadCleanInvoicePdf(invoice, company, customer)}>PDF limpio</Button>
       <Button variant="ghost" icon={Printer} onClick={() => printCleanInvoicePdf(invoice, company, customer)}>Imprimir</Button>
-      <Button variant="ghost" icon={MessageCircle} onClick={() => phone && window.open(`https://wa.me/${phone}?text=${encodeURIComponent(body)}`)}>WhatsApp</Button>
-      <Button variant="ghost" icon={Mail} onClick={() => window.location.href = `mailto:${customer?.email || company?.email || ''}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`}>Correo</Button>
+      <Button variant="ghost" icon={MessageCircle} onClick={() => sharePdfViaWhatsApp(invoice, customer, company)}>WhatsApp</Button>
+      <Button variant="ghost" icon={Mail} onClick={() => sharePdfViaEmail(invoice, customer, company)}>Correo</Button>
     </div>
   )
 }

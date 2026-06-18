@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { Activity, AlertTriangle, Barcode, Boxes, CheckCircle2, Download, Eye, ImagePlus, Layers3, Loader2, PackagePlus, Pencil, Plus, Printer, RotateCcw, Search, SlidersHorizontal, TrendingUp, Trash2, Truck } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Activity, AlertTriangle, Barcode, Boxes, CheckCircle2, ChevronLeft, ChevronRight, Download, Eye, ImagePlus, Layers3, Loader2, PackagePlus, Pencil, Plus, Printer, RotateCcw, Search, SlidersHorizontal, TrendingUp, Trash2, Truck } from 'lucide-react'
 import { Bar } from 'react-chartjs-2'
 import { DataTable } from '../../components/ui/DataTable'
 import { Button } from '../../components/ui/Button'
@@ -12,6 +12,8 @@ import { useERPStore } from '../../store/useERPStore'
 import { downloadCsv } from '../../lib/csvExport'
 import { currency, formatDate } from '../../lib/formatters'
 import { buildCode128Bars } from '../../lib/barcodeEngine'
+import { generateZPL, downloadZplFile, sendToUsbPrinter, generateESCPOS, downloadEscposFile, sendEscposToUsb, renderLabelToCanvas, downloadLabelPng, LABEL_DIMENSIONS, PRINT_MODES } from '../../services/barcodeLabelService'
+import jsPDF from 'jspdf'
 
 const emptyProduct = {
   name: '',
@@ -65,11 +67,14 @@ export function Inventory() {
   const [saving, setSaving] = useState(false)
   const [adjust, setAdjust] = useState({ type: 'incremento', quantity: 1, reason: 'Conteo fisico', note: '', serialText: '' })
   const [inventorySort, setInventorySort] = useState('category')
+  const [inventoryPage, setInventoryPage] = useState(1)
+  const [inventoryPageSize, setInventoryPageSize] = useState(20)
   const brands = useMemo(() => [...new Set(products.map((item) => item.brand).filter(Boolean))], [products])
   const activeProducts = useMemo(() => products.filter((item) => !item.deletedAt && item.status !== 'Eliminado'), [products])
   const deletedProducts = useMemo(() => products.filter((item) => item.deletedAt || item.status === 'Eliminado'), [products])
   const inventoryValue = useMemo(() => activeProducts.reduce((sum, item) => sum + Number(item.cost || 0) * Number(item.stock || 0), 0), [activeProducts])
   const lowStock = useMemo(() => activeProducts.filter((item) => Number(item.stock || 0) <= Number(item.stockMin || 0)), [activeProducts])
+  const categorySummary = useMemo(() => buildCategorySummary(activeProducts), [activeProducts])
 
   const filtered = useMemo(() => products.filter((item) => {
     const q = normalize(debouncedQuery)
@@ -82,6 +87,16 @@ export function Inventory() {
       && (!filters.low || Number(item.stock || 0) <= Number(item.stockMin || 0))
   }).sort((left, right) => scoreInventoryProduct(right, normalize(debouncedQuery)) - scoreInventoryProduct(left, normalize(debouncedQuery))), [debouncedQuery, filters.brand, filters.category, filters.low, filters.status, filters.tax, products])
   const sortedInventory = useMemo(() => sortInventory(filtered, inventorySort), [filtered, inventorySort])
+  const inventoryTotalPages = Math.max(1, Math.ceil(sortedInventory.length / inventoryPageSize))
+  const safeInventoryPage = Math.min(inventoryPage, inventoryTotalPages)
+  const visibleInventory = useMemo(() => {
+    const start = (safeInventoryPage - 1) * inventoryPageSize
+    return sortedInventory.slice(start, start + inventoryPageSize)
+  }, [inventoryPageSize, safeInventoryPage, sortedInventory])
+
+  useEffect(() => {
+    setInventoryPage(1)
+  }, [debouncedQuery, filters.brand, filters.category, filters.low, filters.status, filters.tax, inventoryPageSize, inventorySort])
 
   async function saveProduct(product) {
     const validation = validateProduct(product)
@@ -173,13 +188,10 @@ export function Inventory() {
 
   const columns = [
     { header: 'Producto', cell: ({ row }) => <ProductIdentity product={row.original} /> },
-    { header: 'Categoria', accessorKey: 'category' },
-    { header: 'Marca / Modelo', cell: ({ row }) => `${row.original.brand || '-'} ${row.original.model || ''}` },
+    { header: 'Categoria / Marca', cell: ({ row }) => <span className="text-xs">{row.original.category} <span className="opacity-50">/</span> {row.original.brand || '-'}</span> },
     { header: 'Precio', cell: ({ row }) => currency.format(row.original.price) },
     { header: 'Stock', cell: ({ row }) => <StockIndicator product={row.original} /> },
-    { header: 'ITBIS', cell: ({ row }) => row.original.taxStatus === 'taxed' ? '18%' : row.original.taxStatus },
-    { header: 'Estado', cell: ({ row }) => <StatusBadge product={row.original} /> },
-    { header: 'Acciones', cell: ({ row }) => <ProductActions product={row.original} onView={setViewing} onEdit={setEditing} onAdjust={openAdjust} onLabel={setLabeling} onDelete={removeProduct} onRestore={restore} /> },
+    { header: 'Acciones', cell: ({ row }) => <ProductActions product={row.original} onView={setViewing} onEdit={setEditing} onAdjust={openAdjust} onLabel={setLabeling} onDelete={removeProduct} onRestore={restore} />, meta: { align: 'right' } },
   ]
 
   return (
@@ -214,8 +226,20 @@ export function Inventory() {
           <Button icon={Printer} variant="ghost" onClick={exportInventoryPdf}>PDF</Button>
           <Button icon={Plus} onClick={() => setEditing({ ...emptyProduct })}>Nuevo producto</Button>
         </div>
+        <InventoryCategoryStrip rows={categorySummary} />
+        <div className="mt-4 flex flex-col gap-2 rounded-lg border px-3 py-2 text-xs font-bold sm:flex-row sm:items-center sm:justify-between" style={{ borderColor: 'var(--line)', background: 'rgba(255,255,255,.035)', color: 'rgba(255,255,255,.55)' }}>
+          <span>{sortedInventory.length} producto(s) encontrados · mostrando {visibleInventory.length} · pagina {safeInventoryPage} de {inventoryTotalPages}</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <select id="inv-page-size" name="inv-page-size" value={inventoryPageSize} onChange={(event) => setInventoryPageSize(Number(event.target.value))} className="input-dark max-w-36 py-1.5 text-xs">
+              {[12, 20, 36, 60].map((option) => <option key={option} value={option}>{option} por pagina</option>)}
+            </select>
+            <Button icon={ChevronLeft} variant="ghost" className="px-2 py-1.5 text-xs" disabled={safeInventoryPage <= 1} onClick={() => setInventoryPage((page) => Math.max(1, page - 1))}>Anterior</Button>
+            <input id="inv-page" name="inv-page" type="number" min={1} max={inventoryTotalPages} value={safeInventoryPage} onChange={(event) => { const value = Number(event.target.value); if (value >= 1 && value <= inventoryTotalPages) setInventoryPage(value) }} className="input-dark w-16 py-1 text-center text-xs" />
+            <Button icon={ChevronRight} variant="ghost" className="px-2 py-1.5 text-xs" disabled={safeInventoryPage >= inventoryTotalPages} onClick={() => setInventoryPage((page) => Math.min(inventoryTotalPages, page + 1))}>Siguiente</Button>
+          </div>
+        </div>
         <div className="mt-4">
-          <DataTable data={sortedInventory} columns={columns} emptyText="No hay productos con esos filtros." initialPageSize={25} maxBodyHeight="70vh" />
+          <DataTable data={visibleInventory} columns={columns} emptyText="No hay productos con esos filtros." initialPageSize={inventoryPageSize} pageSizeOptions={[inventoryPageSize]} maxBodyHeight="64vh" searchable={false} />
         </div>
       </section>
 
@@ -299,65 +323,54 @@ function ProductForm({ product, categories, suppliers, onSave, saving }) {
   }
 
   return (
-    <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
-      <div className="space-y-5">
-        <FormSection title="Informacion basica" detail="Nombre, descripcion, categoria y marca del producto.">
-          <Field label="Nombre *" error={touched && errors.name}><input id="inv-draft-name" name="inv-draft-name" value={draft.name} onChange={(e) => set('name', e.target.value)} className="input-dark" placeholder="Ej. iPhone 15 Pro 256GB" /></Field>
-          <Field label="Categoria *" error={touched && errors.category}>
-            <input id="inv-draft-category" name="inv-draft-category" list="category-options" value={draft.category} onChange={(e) => set('category', e.target.value)} className="input-dark" placeholder="Categoria" />
-            <datalist id="category-options">{categories.map((item) => <option key={item} value={item} />)}</datalist>
-          </Field>
-          <Field label="Marca"><input id="inv-draft-brand" name="inv-draft-brand" value={draft.brand} onChange={(e) => set('brand', e.target.value)} className="input-dark" placeholder="Apple, Samsung, Lenovo..." /></Field>
-          <Field label="Modelo"><input id="inv-draft-model" name="inv-draft-model" value={draft.model} onChange={(e) => set('model', e.target.value)} className="input-dark" /></Field>
-          <Field label="Descripcion" wide><textarea id="inv-draft-description" name="inv-draft-description" value={draft.description} onChange={(e) => set('description', e.target.value)} className="input-dark min-h-24" /></Field>
-        </FormSection>
-
-        <FormSection title="Codigos e identificacion" detail="SKU, codigo de barra, variantes y ubicacion fisica.">
-          <Field label="SKU / Codigo interno"><input id="inv-draft-sku" name="inv-draft-sku" value={draft.sku} onChange={(e) => set('sku', e.target.value)} className="input-dark" placeholder="Autogenerado si lo dejas vacio" /></Field>
-          <Field label="Codigo de barras"><input id="inv-draft-barcode" name="inv-draft-barcode" value={draft.barcode} onChange={(e) => set('barcode', e.target.value)} className="input-dark" /></Field>
-          <Field label="Color"><input id="inv-draft-color" name="inv-draft-color" value={draft.color} onChange={(e) => set('color', e.target.value)} className="input-dark" /></Field>
-          <Field label="Capacidad / talla"><input id="inv-draft-capacity" name="inv-draft-capacity" value={draft.capacity} onChange={(e) => set('capacity', e.target.value)} className="input-dark" /></Field>
-          <Field label="Ubicacion"><input id="inv-draft-location" name="inv-draft-location" value={draft.location} onChange={(e) => set('location', e.target.value)} className="input-dark" placeholder="A1, vitrina, almacen..." /></Field>
-          <div className="rounded-lg p-3" style={{ border: '1px solid var(--line)', background: 'rgba(0,0,0,.2)' }}>
-            <p className="flex items-center gap-2 text-xs font-extrabold uppercase" style={{ color: 'rgba(255,255,255,.45)' }}><Barcode size={14} /> Vista codigo</p>
-            <p className="mt-2 rounded bg-white px-3 py-2 font-mono text-sm font-bold tracking-wide text-black">{draft.barcode || draft.sku || 'SIN-CODIGO'}</p>
+    <div className="grid gap-4 xl:grid-cols-[1fr_260px]">
+      <div className="space-y-4">
+        <section className="rounded-lg border p-3" style={{ borderColor: 'var(--line)' }}>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            <CompactField label="Nombre *" error={touched && errors.name}><input value={draft.name} onChange={(e) => set('name', e.target.value)} className="input-dark text-sm" placeholder="Ej. iPhone 15 Pro 256GB" /></CompactField>
+            <CompactField label="Categoria *" error={touched && errors.category}><input list="category-options" value={draft.category} onChange={(e) => set('category', e.target.value)} className="input-dark text-sm" placeholder="Categoria" /><datalist id="category-options">{categories.map((item) => <option key={item} value={item} />)}</datalist></CompactField>
+            <CompactField label="Marca"><input value={draft.brand} onChange={(e) => set('brand', e.target.value)} className="input-dark text-sm" placeholder="Apple, Samsung..." /></CompactField>
+            <CompactField label="Modelo"><input value={draft.model} onChange={(e) => set('model', e.target.value)} className="input-dark text-sm" /></CompactField>
+            <CompactField label="SKU"><input value={draft.sku} onChange={(e) => set('sku', e.target.value)} className="input-dark text-sm" placeholder="Autogenerado" /></CompactField>
+            <CompactField label="Codigo barras"><input value={draft.barcode} onChange={(e) => set('barcode', e.target.value)} className="input-dark text-sm" /></CompactField>
+            <CompactField label="Color"><input value={draft.color} onChange={(e) => set('color', e.target.value)} className="input-dark text-sm" /></CompactField>
+            <CompactField label="Capacidad/talla"><input value={draft.capacity} onChange={(e) => set('capacity', e.target.value)} className="input-dark text-sm" /></CompactField>
+            <CompactField label="Ubicacion"><input value={draft.location} onChange={(e) => set('location', e.target.value)} className="input-dark text-sm" placeholder="A1, vitrina..." /></CompactField>
           </div>
-        </FormSection>
+          <CompactField label="Descripcion" className="mt-2"><textarea value={draft.description} onChange={(e) => set('description', e.target.value)} className="input-dark min-h-16 text-sm" /></CompactField>
+        </section>
 
-        <FormSection title={`Precios y margen ${Number.isFinite(margin) ? margin.toFixed(1) : '0.0'}%`} detail="Costo, precio de venta y listas comerciales.">
-          <Field label="Costo compra *" error={touched && errors.cost}><NumberInput id="inv-draft-cost" name="inv-draft-cost" value={draft.cost} onChange={(value) => set('cost', value)} /></Field>
-          <Field label="Precio venta *" error={touched && errors.price}><NumberInput id="inv-draft-price" name="inv-draft-price" value={draft.price} onChange={(value) => set('price', value)} /></Field>
-          <Field label="Precio mayor"><NumberInput id="inv-draft-wholesale-price" name="inv-draft-wholesale-price" value={draft.wholesalePrice} onChange={(value) => set('wholesalePrice', value)} /></Field>
-          <Field label="Precio tecnico"><NumberInput id="inv-draft-technician-price" name="inv-draft-technician-price" value={draft.technicianPrice} onChange={(value) => set('technicianPrice', value)} /></Field>
-          <Field label="Precio especial"><NumberInput id="inv-draft-special-price" name="inv-draft-special-price" value={draft.specialPrice} onChange={(value) => set('specialPrice', value)} /></Field>
-          <Field label="Precio USD"><NumberInput id="inv-draft-usd-price" name="inv-draft-usd-price" value={draft.usdPrice} onChange={(value) => set('usdPrice', value)} /></Field>
-        </FormSection>
-
-        <FormSection title="Inventario, seriales e IMEI" detail="Stock inicial, alertas, unidad y control serializado.">
-          <Field label={draft.id ? 'Stock actual' : 'Stock inicial'}><NumberInput id="inv-draft-stock" name="inv-draft-stock" value={draft.id ? draft.stock : draft.initialStock} onChange={(value) => draft.id ? set('stock', value) : set('initialStock', value)} /></Field>
-          <Field label="Stock minimo"><NumberInput id="inv-draft-stock-min" name="inv-draft-stock-min" value={draft.stockMin} onChange={(value) => set('stockMin', value)} /></Field>
-          <Field label="Stock maximo"><NumberInput id="inv-draft-stock-max" name="inv-draft-stock-max" value={draft.stockMax} onChange={(value) => set('stockMax', value)} /></Field>
-          <Field label="Unidad"><select id="inv-draft-unit" name="inv-draft-unit" value={draft.unit} onChange={(e) => set('unit', e.target.value)} className="input-dark"><option>Unidad</option><option>Caja</option><option>Kit</option><option>Par</option><option>Yarda</option><option>Metro</option></select></Field>
-          <Field label="Configuracion ITBIS"><select id="inv-draft-tax-status" name="inv-draft-tax-status" value={draft.taxStatus} onChange={(e) => set('taxStatus', e.target.value)} className="input-dark" style={{ borderColor: 'rgba(52,211,153,.3)', background: 'rgba(16,185,129,.1)' }}><option value="no_tax">Sin ITBIS</option><option value="taxed">Con ITBIS</option><option value="exempt">Exento</option></select><span className="mt-1 block text-xs font-bold" style={{ color: 'rgb(110,231,183)' }}>Predeterminado: sin impuestos. Active ITBIS solo cuando aplique.</span></Field>
-          <Field label="Proveedor"><select id="inv-draft-supplier" name="inv-draft-supplier" value={draft.supplierId} onChange={(e) => set('supplierId', e.target.value)} className="input-dark">{suppliers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
-          <label className="flex min-h-11 items-center gap-3 rounded-lg border px-3 text-sm font-bold transition" style={{ borderColor: 'var(--line)', background: 'rgba(255,255,255,.035)', color: 'rgba(255,255,255,.7)' }}>
-            <input id="inv-draft-requires-serial" name="inv-draft-requires-serial" type="checkbox" checked={draft.requiresSerial} onChange={(e) => set('requiresSerial', e.target.checked)} />
-            Maneja serial / IMEI
-          </label>
-          <Field label="Seriales / IMEI" wide error={touched && errors.serialsText}><textarea id="inv-draft-serials" name="inv-draft-serials" value={draft.serialsText} onChange={(e) => set('serialsText', e.target.value)} className="input-dark min-h-28" placeholder="Uno por linea o separado por coma" /></Field>
-        </FormSection>
+        <section className="rounded-lg border p-3" style={{ borderColor: 'var(--line)' }}>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            <CompactField label="Costo *" error={touched && errors.cost}><NumberInput value={draft.cost} onChange={(value) => set('cost', value)} /></CompactField>
+            <CompactField label="Precio *" error={touched && errors.price}><NumberInput value={draft.price} onChange={(value) => set('price', value)} /></CompactField>
+            <CompactField label="Mayor"><NumberInput value={draft.wholesalePrice} onChange={(value) => set('wholesalePrice', value)} /></CompactField>
+            <CompactField label="Tecnico"><NumberInput value={draft.technicianPrice} onChange={(value) => set('technicianPrice', value)} /></CompactField>
+            <CompactField label="Especial"><NumberInput value={draft.specialPrice} onChange={(value) => set('specialPrice', value)} /></CompactField>
+            <CompactField label="USD"><NumberInput value={draft.usdPrice} onChange={(value) => set('usdPrice', value)} /></CompactField>
+            <CompactField label={draft.id ? 'Stock actual' : 'Stock inicial'}><NumberInput value={draft.id ? draft.stock : draft.initialStock} onChange={(value) => draft.id ? set('stock', value) : set('initialStock', value)} /></CompactField>
+            <CompactField label="Stock minimo"><NumberInput value={draft.stockMin} onChange={(value) => set('stockMin', value)} /></CompactField>
+            <CompactField label="Stock maximo"><NumberInput value={draft.stockMax} onChange={(value) => set('stockMax', value)} /></CompactField>
+            <CompactField label="Unidad"><select value={draft.unit} onChange={(e) => set('unit', e.target.value)} className="input-dark text-sm"><option>Unidad</option><option>Caja</option><option>Kit</option><option>Par</option><option>Yarda</option><option>Metro</option></select></CompactField>
+            <CompactField label="ITBIS"><select value={draft.taxStatus} onChange={(e) => set('taxStatus', e.target.value)} className="input-dark text-sm"><option value="no_tax">Sin ITBIS</option><option value="taxed">Con ITBIS</option><option value="exempt">Exento</option></select></CompactField>
+            <CompactField label="Proveedor"><select value={draft.supplierId} onChange={(e) => set('supplierId', e.target.value)} className="input-dark text-sm">{suppliers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></CompactField>
+          </div>
+          <div className="mt-2 flex items-center gap-3">
+            <label className="flex items-center gap-2 text-xs font-bold" style={{ color: 'rgba(255,255,255,.7)' }}>
+              <input type="checkbox" checked={draft.requiresSerial} onChange={(e) => set('requiresSerial', e.target.checked)} />
+              Serial / IMEI
+            </label>
+            {draft.requiresSerial ? <input value={draft.serialsText} onChange={(e) => set('serialsText', e.target.value)} className="input-dark flex-1 text-sm" placeholder="Seriales: uno por linea o coma" /> : null}
+          </div>
+        </section>
       </div>
 
-      <aside className="panel h-fit rounded-lg p-4 xl:sticky xl:top-24">
-        <div className="grid h-36 place-items-center rounded-lg border border-dashed text-center" style={{ borderColor: 'rgba(255,255,255,.15)', background: 'rgba(255,255,255,.025)', color: 'rgba(255,255,255,.45)' }}>
-          <div>
-            <ImagePlus className="mx-auto mb-2" />
-            <p className="text-sm font-bold">Foto del producto</p>
-            <p className="text-xs">Campo preparado para imagen/URL</p>
-          </div>
+      <aside className="space-y-3">
+        <div className="rounded-lg border p-3 text-center" style={{ borderColor: 'var(--line)' }}>
+          <ImagePlus className="mx-auto mb-1" size={24} style={{ color: 'rgba(255,255,255,.3)' }} />
+          <input value={draft.image || ''} onChange={(e) => set('image', e.target.value)} className="input-dark mt-1 text-sm" placeholder="URL imagen" />
         </div>
-        <Field label="URL imagen"><input id="inv-draft-image" name="inv-draft-image" value={draft.image || ''} onChange={(e) => set('image', e.target.value)} className="input-dark" /></Field>
-        <div className="mt-4 space-y-2 rounded-lg p-3 text-sm" style={{ border: '1px solid var(--line)', background: 'rgba(255,255,255,.035)' }}>
+        <div className="space-y-1 rounded-lg border p-3 text-xs" style={{ borderColor: 'var(--line)' }}>
           <PreviewLine label="SKU" value={draft.sku || 'Autogenerado'} />
           <PreviewLine label="Precio" value={currency.format(Number(draft.price || 0))} />
           <PreviewLine label="Costo" value={currency.format(Number(draft.cost || 0))} />
@@ -365,16 +378,16 @@ function ProductForm({ product, categories, suppliers, onSave, saving }) {
           <PreviewLine label="Margen" value={`${Number.isFinite(margin) ? margin.toFixed(1) : '0.0'}%`} />
         </div>
         {touched && Object.keys(errors).length ? (
-          <div className="mt-4 rounded-lg p-3 text-sm" style={{ border: '1px solid rgba(248,113,113,.25)', background: 'rgba(239,68,68,.1)', color: 'rgb(254,202,202)' }}>
+          <div className="rounded-lg p-2 text-xs" style={{ border: '1px solid rgba(248,113,113,.25)', background: 'rgba(239,68,68,.1)', color: 'rgb(254,202,202)' }}>
             {Object.values(errors).map((error) => <p key={error}>{error}</p>)}
           </div>
         ) : (
-          <div className="mt-4 flex gap-2 rounded-lg p-3 text-sm" style={{ border: '1px solid rgba(52,211,153,.2)', background: 'rgba(16,185,129,.1)', color: 'rgb(167,243,208)' }}>
-            <CheckCircle2 size={18} className="shrink-0" />
-            <p>Completa nombre y precio de venta para guardar. El SKU puede autogenerarse.</p>
+          <div className="flex gap-2 rounded-lg p-2 text-xs" style={{ border: '1px solid rgba(52,211,153,.2)', background: 'rgba(16,185,129,.1)', color: 'rgb(167,243,208)' }}>
+            <CheckCircle2 size={14} className="shrink-0" />
+            <p>Completa nombre y precio de venta.</p>
           </div>
         )}
-        <Button className="mt-4 w-full py-3" icon={saving ? Loader2 : PackagePlus} disabled={saving} onClick={submit}>
+        <Button className="w-full py-2" icon={saving ? Loader2 : PackagePlus} disabled={saving} onClick={submit}>
           {saving ? 'Guardando...' : draft.id ? 'Actualizar producto' : 'Crear producto'}
         </Button>
       </aside>
@@ -431,25 +444,180 @@ function ProductActions({ product, onView, onEdit, onAdjust, onLabel, onDelete, 
   )
 }
 
+const LABEL_SIZES = Object.entries(LABEL_DIMENSIONS).map(([id, dim]) => ({ id, name: dim.name, cols: dim.cols }))
+
 function BarcodeLabelPrinter({ product }) {
   const [quantity, setQuantity] = useState(1)
   const [source, setSource] = useState(product.barcode ? 'barcode' : product.sku ? 'sku' : 'id')
+  const [labelSize, setLabelSize] = useState(LABEL_SIZES[0])
+  const [showPrice, setShowPrice] = useState(true)
+  const [printMode, setPrintMode] = useState('browser')
+  const [zplStatus, setZplStatus] = useState('')
   const code = source === 'barcode' ? product.barcode : source === 'sku' ? product.sku : product.id
-  const labels = Array.from({ length: Math.max(1, Math.min(Number(quantity || 1), 60)) })
+  const labels = Array.from({ length: Math.max(1, Math.min(Number(quantity || 1), 120)) })
+
+  function handleBrowserPrint() {
+    const dim = LABEL_DIMENSIONS[labelSize.id] || LABEL_DIMENSIONS['3x2']
+    const mmW = dim.widthIn * 25.4
+    const mmH = dim.heightIn * 25.4
+    const pdf = new jsPDF({ unit: 'mm', format: [mmW, mmH], hotfixes: ['px_scaling'] })
+    const qty = Math.max(1, Math.min(Number(quantity || 1), 120))
+    const margin = 3
+    const usableW = mmW - margin * 2
+
+    for (let i = 0; i < qty; i++) {
+      if (i > 0) pdf.addPage([mmW, mmH])
+
+      let y = margin + 1
+      pdf.setFont('helvetica', 'bold')
+      pdf.setFontSize(7)
+      const name = String(product.name || 'Producto').trim().slice(0, 40)
+      pdf.text(name, mmW / 2, y, { align: 'center', maxWidth: usableW })
+      y += 5
+
+      if (product.sku) {
+        pdf.setFont('helvetica', 'normal')
+        pdf.setFontSize(5.5)
+        pdf.text(`SKU: ${product.sku}`, mmW / 2, y, { align: 'center' })
+        y += 4
+      }
+
+      if (showPrice && Number(product.price || 0) > 0) {
+        pdf.setFont('helvetica', 'bold')
+        pdf.setFontSize(9)
+        pdf.text(`RD$ ${Number(product.price).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`, mmW / 2, y, { align: 'center' })
+        y += 5.5
+      }
+
+      const code = source === 'barcode' ? product.barcode : source === 'sku' ? product.sku : product.id
+      const barcode = buildCode128Bars(code)
+      const barHeight = 10
+      const scale = (usableW - 4) / barcode.width
+      const barY = y
+      barcode.bars.forEach((bar) => {
+        pdf.rect(margin + 2 + bar.x * scale, barY, Math.max(bar.width * scale, 0.15), barHeight, 'F')
+      })
+      y += barHeight + 2.5
+
+      pdf.setFont('helvetica', 'bold')
+      pdf.setFontSize(4.5)
+      pdf.text(String(code || 'SIN-CODIGO').slice(0, 30), mmW / 2, y, { align: 'center' })
+    }
+
+    const blob = pdf.output('blob')
+    const url = URL.createObjectURL(blob)
+    const iframe = document.createElement('iframe')
+    iframe.style.display = 'none'
+    iframe.src = url
+    document.body.appendChild(iframe)
+    iframe.onload = () => {
+      setTimeout(() => {
+        iframe.contentWindow?.print()
+        setTimeout(() => { document.body.removeChild(iframe); URL.revokeObjectURL(url) }, 2000)
+      }, 500)
+    }
+  }
+
+  async function handlePrint() {
+    const qty = Number(quantity || 1)
+    const opts = { labelSize: labelSize.id, includePrice: showPrice, quantity: qty }
+    const sku = product.sku || product.barcode || product.id
+
+    try {
+      if (printMode === 'browser') {
+        const dim = LABEL_DIMENSIONS[labelSize.id] || LABEL_DIMENSIONS['3x2']
+        const mmW = dim.widthIn * 25.4; const mmH = dim.heightIn * 25.4
+        const pdf = new jsPDF({ unit: 'mm', format: [mmW, mmH], hotfixes: ['px_scaling'] })
+        const margin = 3; const usableW = mmW - margin * 2
+        for (let i = 0; i < qty; i++) {
+          if (i > 0) pdf.addPage([mmW, mmH])
+          let y = margin + 1
+          pdf.setFont('helvetica', 'bold'); pdf.setFontSize(7)
+          pdf.text(String(product.name || 'Producto').trim().slice(0, 40), mmW / 2, y, { align: 'center', maxWidth: usableW }); y += 5
+          if (product.sku) { pdf.setFont('helvetica', 'normal'); pdf.setFontSize(5.5); pdf.text('SKU: ' + product.sku, mmW / 2, y, { align: 'center' }); y += 4 }
+          if (showPrice && Number(product.price || 0) > 0) {
+            pdf.setFont('helvetica', 'bold'); pdf.setFontSize(9)
+            pdf.text('RD$ ' + Number(product.price).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','), mmW / 2, y, { align: 'center' }); y += 5.5
+          }
+          const bc = buildCode128Bars(code); const barH = 10; const scale = (usableW - 4) / bc.width
+          bc.bars.forEach((bar) => pdf.rect(margin + 2 + bar.x * scale, y, Math.max(bar.width * scale, 0.15), barH, 'F'))
+          y += barH + 2.5
+          pdf.setFont('helvetica', 'bold'); pdf.setFontSize(4.5)
+          pdf.text(String(code || 'SIN-CODIGO').slice(0, 30), mmW / 2, y, { align: 'center' })
+        }
+        const blob = pdf.output('blob'); const url = URL.createObjectURL(blob)
+        const iframe = document.createElement('iframe'); iframe.style.display = 'none'; iframe.src = url
+        document.body.appendChild(iframe)
+        iframe.onload = () => { setTimeout(() => { iframe.contentWindow?.print(); setTimeout(() => { document.body.removeChild(iframe); URL.revokeObjectURL(url) }, 2000) }, 500) }
+        return
+      }
+
+      if (printMode === 'zpl') {
+        downloadZplFile(generateZPL(product, opts), 'etiqueta-' + sku + '.zpl')
+        setZplStatus('Archivo ZPL descargado'); setTimeout(() => setZplStatus(''), 3000)
+        return
+      }
+
+      if (printMode === 'usb') {
+        setZplStatus('Conectando impresora USB...')
+        const name = await sendToUsbPrinter(generateZPL(product, opts))
+        setZplStatus('Impreso en ' + name); setTimeout(() => setZplStatus(''), 3000)
+        return
+      }
+
+      if (printMode === 'escpos') {
+        downloadEscposFile(generateESCPOS(product, opts), 'etiqueta-' + sku + '.prn')
+        setZplStatus('Archivo ESC/POS descargado'); setTimeout(() => setZplStatus(''), 3000)
+        return
+      }
+
+      if (printMode === 'escpos-usb') {
+        setZplStatus('Conectando impresora ESC/POS...')
+        const name = await sendEscposToUsb(generateESCPOS(product, opts))
+        setZplStatus('Impreso en ' + name); setTimeout(() => setZplStatus(''), 3000)
+        return
+      }
+
+      if (printMode === 'png') {
+        const canvas = renderLabelToCanvas(product, opts)
+        downloadLabelPng(canvas, 'etiqueta-' + sku + '.png')
+        setZplStatus('Imagen PNG descargada'); setTimeout(() => setZplStatus(''), 3000)
+      }
+    } catch (error) {
+      setZplStatus('Error: ' + error.message)
+      if (error.message.includes('WebUSB')) {
+        if (printMode === 'usb' || printMode === 'escpos-usb') {
+          const fn = printMode === 'usb' ? () => downloadZplFile(generateZPL(product, opts), 'etiqueta-' + sku + '.zpl') : () => downloadEscposFile(generateESCPOS(product, opts), 'etiqueta-' + sku + '.prn')
+          fn(); setZplStatus('USB no disponible, archivo descargado como fallback')
+        }
+      }
+    }
+  }
+
   return (
     <div className="space-y-4">
-      <div className="no-print grid gap-3 md:grid-cols-[1fr_160px_auto]">
-        <label><span className="label-dark">Codigo a imprimir</span><select id="inv-label-source" name="inv-label-source" value={source} onChange={(event) => setSource(event.target.value)} className="input-dark"><option value="barcode">Codigo de barras</option><option value="sku">SKU</option><option value="id">ID interno</option></select></label>
-        <label><span className="label-dark">Cantidad</span><input id="inv-label-quantity" name="inv-label-quantity" type="number" min="1" max="60" value={quantity} onChange={(event) => setQuantity(event.target.value)} className="input-dark" /></label>
-        <Button icon={Printer} variant="primary" className="self-end" onClick={() => window.print()}>Imprimir</Button>
+      <div className="no-print grid gap-3 sm:grid-cols-2 md:grid-cols-[1fr_130px_100px_80px_auto]">
+        <label><span className="label-dark">Codigo a imprimir</span><select value={source} onChange={(event) => setSource(event.target.value)} className="input-dark"><option value="barcode">Codigo de barras</option><option value="sku">SKU</option><option value="id">ID interno</option></select></label>
+        <label><span className="label-dark">Tamaño</span><select value={labelSize.id} onChange={(event) => setLabelSize(LABEL_SIZES.find((s) => s.id === event.target.value) || LABEL_SIZES[0])} className="input-dark">{LABEL_SIZES.map((size) => <option key={size.id} value={size.id}>{size.name}</option>)}</select></label>
+        <label><span className="label-dark">Cantidad</span><input type="number" min="1" max="120" value={quantity} onChange={(event) => setQuantity(event.target.value)} className="input-dark" /></label>
+        <label className="flex items-center gap-2 pt-6 text-sm"><input type="checkbox" checked={showPrice} onChange={(e) => setShowPrice(e.target.checked)} /> Precio</label>
+        <label><span className="label-dark">Metodo</span><select value={printMode} onChange={(event) => setPrintMode(event.target.value)} className="input-dark">{PRINT_MODES.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</select></label>
+        <Button icon={Printer} variant="primary" className="self-end" onClick={handlePrint}>
+          {printMode === 'browser' ? 'Imprimir' : printMode === 'usb' || printMode === 'escpos-usb' ? 'Enviar a USB' : 'Descargar'}
+        </Button>
       </div>
-      <div className="printable-report grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      {zplStatus && <p className="text-sm text-emerald-300">{zplStatus}</p>}
+      <div className="mt-2 text-xs text-white/40">{PRINT_MODES.find((m) => m.id === printMode)?.desc}</div>
+      <div className={`label-grid grid gap-2 ${labelSize.id === '2x1' ? 'grid-cols-4' : labelSize.id === '4x2' || labelSize.id === '4x3' ? 'grid-cols-2' : 'grid-cols-3'}`}>
         {labels.map((_, index) => (
-          <div key={index} className="rounded-lg border border-slate-300 bg-white p-3 text-center text-slate-950">
-            <p className="truncate text-sm font-black">{product.name}</p>
-            <p className="mb-2 truncate text-xs font-bold">{product.sku || 'Sin SKU'} | Stock {product.stock || 0}</p>
+          <div key={index} className="label-item flex flex-col items-center justify-center rounded border border-slate-300 bg-white p-2 text-center text-slate-950 print:break-inside-avoid">
+            <p className="w-full truncate text-xs font-black leading-tight">{product.name}</p>
+            {product.sku && <p className="w-full truncate text-[10px] font-semibold leading-tight">{product.sku}</p>}
+            {showPrice && Number(product.price || 0) > 0 && (
+              <p className="w-full truncate text-sm font-black text-slate-950">{currency.format(Number(product.price))}</p>
+            )}
             <BarcodeSvg value={code} />
-            <p className="mt-1 font-mono text-xs font-black tracking-wide">{code || 'SIN-CODIGO'}</p>
+            <p className="mt-[2px] w-full truncate font-mono text-[10px] font-black tracking-wide">{code || 'SIN-CODIGO'}</p>
           </div>
         ))}
       </div>
@@ -457,11 +625,11 @@ function BarcodeLabelPrinter({ product }) {
   )
 }
 
-function BarcodeSvg({ value }) {
+function BarcodeSvg({ value, height = 32 }) {
   const barcode = buildCode128Bars(value)
   return (
-    <svg viewBox={`0 0 ${barcode.width} 42`} role="img" aria-label={`Codigo ${barcode.text}`} className="mx-auto h-16 w-full max-w-[260px] bg-white">
-      {barcode.bars.map((bar, index) => <rect key={`${bar.x}-${index}`} x={bar.x} y="3" width={bar.width} height="34" fill="#111827" />)}
+    <svg viewBox={`0 0 ${barcode.width} ${height + 6}`} role="img" aria-label={`Codigo ${barcode.text}`} className="mx-auto w-full max-w-[220px] bg-white" style={{ height: `${height + 6}px` }}>
+      {barcode.bars.map((bar, index) => <rect key={`${bar.x}-${index}`} x={bar.x} y="3" width={bar.width} height={height} fill="#111827" />)}
     </svg>
   )
 }
@@ -542,15 +710,34 @@ function InventoryMetric({ title, value, detail, tone }) {
   return <div className={`rounded-lg border p-4 ${tone === 'danger' ? 'border-red-400/20 bg-red-500/10' : 'border-white/10 bg-white/[0.04]'}`}><p className="text-xs font-extrabold uppercase" style={{ color: 'rgba(255,255,255,.4)' }}>{title}</p><p className="mt-1 font-display text-2xl font-bold">{value}</p><p className="mt-1 text-xs" style={{ color: 'rgba(255,255,255,.45)' }}>{detail}</p></div>
 }
 
+function InventoryCategoryStrip({ rows }) {
+  if (!rows.length) return null
+  return (
+    <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+      {rows.slice(0, 4).map((row) => (
+        <div key={row.category} className="rounded-lg border px-3 py-2" style={{ borderColor: 'var(--line)', background: 'rgba(255,255,255,.03)' }}>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-extrabold">{row.category}</p>
+              <p className="mt-0.5 text-xs" style={{ color: 'rgba(255,255,255,.45)' }}>{row.count} producto(s) · {row.units} unidad(es)</p>
+            </div>
+            <span className="shrink-0 text-xs font-black" style={{ color: 'rgb(167,243,208)' }}>{currency.format(row.value)}</span>
+          </div>
+          <div className="mt-2 h-1.5 overflow-hidden rounded-full" style={{ background: 'rgba(255,255,255,.08)' }}>
+            <div className="h-full rounded-full" style={{ width: `${row.share}%`, background: 'var(--color-income)' }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function StatusBadge({ product }) {
   const deleted = Boolean(product.deletedAt) || product.status === 'Eliminado'
   return <span className={deleted ? 'rounded px-2 py-1 text-xs font-bold' : 'rounded px-2 py-1 text-xs font-bold'} style={deleted ? { background: 'rgba(239,68,68,.15)', color: 'rgb(254,202,202)' } : { background: 'rgba(16,185,129,.15)', color: 'rgb(110,231,183)' }}>{deleted ? 'Eliminado' : product.status || 'Activo'}</span>
 }
-function FormSection({ title, detail, children }) {
-  return <section className="rounded-lg p-4" style={{ border: '1px solid var(--line)', background: 'rgba(255,255,255,.025)' }}><div className="mb-4"><h3 className="font-display text-lg font-bold">{title}</h3><p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{detail}</p></div><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{children}</div></section>
-}
-function Field({ label, children, error, wide }) {
-  return <label className={wide ? 'md:col-span-2 xl:col-span-3' : ''}><span className="label-dark">{label}</span>{children}{error ? <span className="mt-1 block text-xs font-bold" style={{ color: 'rgb(252,165,165)' }}>{error}</span> : null}</label>
+function CompactField({ label, children, error, className }) {
+  return <label className={className}><span className="label-dark text-xs">{label}</span>{children}{error ? <span className="mt-0.5 block text-xs font-bold" style={{ color: 'rgb(252,165,165)' }}>{error}</span> : null}</label>
 }
 function NumberInput({ value, onChange, id, name }) {
   return <input type="number" min="0" step="0.01" value={value ?? 0} onChange={(event) => onChange(Number(event.target.value))} className="input-dark" id={id} name={name} />
@@ -622,6 +809,23 @@ function buildInventoryRows(products) {
       seriales: product.requiresSerial ? (product.serials || []).join(', ') : '',
     }
   })
+}
+
+function buildCategorySummary(products) {
+  const totalValue = products.reduce((sum, product) => sum + Number(product.cost || 0) * Number(product.stock || 0), 0)
+  const rows = new Map()
+  products.forEach((product) => {
+    const category = product.category || 'Sin categoria'
+    const current = rows.get(category) || { category, count: 0, units: 0, value: 0, share: 0 }
+    const stock = Number(product.stock || 0)
+    current.count += 1
+    current.units += stock
+    current.value += Number(product.cost || 0) * stock
+    rows.set(category, current)
+  })
+  return [...rows.values()]
+    .map((row) => ({ ...row, share: totalValue > 0 ? Math.max(4, Math.round((row.value / totalValue) * 100)) : 4 }))
+    .sort((left, right) => right.value - left.value || right.count - left.count)
 }
 
 function buildInventoryInsights({ products, movements, invoices, entries, suppliers }) {

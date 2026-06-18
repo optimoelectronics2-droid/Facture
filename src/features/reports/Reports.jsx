@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useCallback } from 'react'
 import { Bar, Doughnut, Line as LineChart } from 'react-chartjs-2'
-import { CalendarDays, ChevronDown, Download, Filter, Printer, Search } from 'lucide-react'
+import { CalendarDays, ChevronDown, Download, Filter, Printer, Search, FileText } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { DataTable } from '../../components/ui/DataTable'
 import { useERPStore } from '../../store/useERPStore'
@@ -42,6 +42,33 @@ export function Reports() {
   const periodRows = report.periods?.[periodTable] || []
   const totalGeneral = buckets.taxed.total + buckets.noTax.total + buckets.mixed.total
 
+  const cashCreditSplitData = useMemo(() => {
+    let cashTotal = 0, creditTotal = 0, cashCount = 0, creditCount = 0, creditPaid = 0, creditPending = 0
+    filteredInvoices.forEach((inv) => {
+      const payments = inv.payments?.length ? inv.payments : [{ method: inv.paymentMethod || 'Efectivo', amount: inv.totals?.total || 0 }]
+      const hasCredit = payments.some((p) => String(p.method || '').toLowerCase().includes('credito'))
+      const total = Number(inv.totals?.total || 0)
+      const paid = Number(inv.paidAmount || 0)
+      if (hasCredit) { creditTotal += total; creditCount += 1; creditPaid += paid; creditPending += Math.max(0, total - paid) }
+      else { cashTotal += total; cashCount += 1 }
+    })
+    return { cashTotal, creditTotal, cashCount, creditCount, creditPaid, creditPending, pctCash: (cashTotal + creditTotal) > 0 ? (cashTotal / (cashTotal + creditTotal)) * 100 : 0 }
+  }, [filteredInvoices])
+
+  const creditInvoiceDetails = useMemo(() => {
+    return filteredInvoices.filter((inv) => {
+      const payments = inv.payments?.length ? inv.payments : [{ method: inv.paymentMethod || 'Efectivo', amount: inv.totals?.total || 0 }]
+      return payments.some((p) => String(p.method || '').toLowerCase().includes('credito'))
+    }).map((inv) => {
+      const total = Number(inv.totals?.total || 0); const paid = Number(inv.paidAmount || 0)
+      return {
+        number: inv.number || inv.ncf || '', customer: inv.customerName || '', date: inv.issuedAt || inv.createdAt || '',
+        total: currency.format(total), paid: currency.format(paid), pending: currency.format(Math.max(0, total - paid)),
+        pctPaid: total > 0 ? ((paid / total) * 100).toFixed(1) + '%' : '0%', status: inv.status || '',
+      }
+    })
+  }, [filteredInvoices])
+
   const barData = useMemo(() => ({
     labels: ['Filtrado'],
     datasets: [
@@ -69,6 +96,13 @@ export function Reports() {
   }
   function setQuickRange(quickRange) { setFilters((state) => applyQuickRange(state, quickRange)) }
   function toggleDetail(key) { setShowDetail((s) => ({ ...s, [key]: !s[key] })) }
+
+  const downloadProfessionalPdf = useCallback(async () => {
+    try {
+      const { downloadProfessionalReportPdf } = await import('../../services/professionalReportPdf')
+      await downloadProfessionalReportPdf({ company, reportStats, generatedAt: new Date(), user: 'Usuario' })
+    } catch (err) { console.error('Error generating professional PDF:', err) }
+  }, [company, reportStats])
 
   function exportExcel() {
     downloadCsvWorkbook('trifusion-reportes-avanzados.csv', [
@@ -133,8 +167,9 @@ export function Reports() {
               <p className="mt-1 max-w-4xl text-sm" style={{ color: 'var(--text-secondary)' }}>Ultima reconstruccion: {formatDate(report.generatedAt)}</p>
             </div>
             <div className="no-print flex flex-wrap gap-2">
+              <Button variant="primary" icon={FileText} onClick={downloadProfessionalPdf}>Reporte ejecutivo PDF</Button>
               <Button variant="ghost" icon={Printer} onClick={() => window.print()}>Imprimir</Button>
-              <Button variant="primary" icon={Download} onClick={downloadAllPdfs}>PDFs</Button>
+              <Button variant="ghost" icon={Download} onClick={() => downloadPdfGroup(invoiceModes.NO_TAX)}>Ventas sin ITBIS</Button>
               <Button variant="ghost" icon={Download} onClick={exportExcel}>Excel</Button>
               <Button variant="ghost" icon={Download} onClick={export607}>607</Button>
             </div>
@@ -249,6 +284,32 @@ export function Reports() {
           </div>
         </DetailSection>
 
+        <DetailSection label="Desglose Contado / Credito" open={showDetail['cashCredit']} onToggle={() => toggleDetail('cashCredit')}>
+          <div className="grid gap-5 xl:grid-cols-2">
+            <Panel title="Resumen Contado vs Credito">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <KpiBlock label="Ventas Contado" value={currency.format(cashCreditSplitData.cashTotal)} accent />
+                <KpiBlock label="Ventas Credito" value={currency.format(cashCreditSplitData.creditTotal)} />
+                <KpiBlock label="Porc. Contado" value={`${cashCreditSplitData.pctCash.toFixed(1)}%`} accent />
+              </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                <KpiBlock label="Facturas Contado" value={String(cashCreditSplitData.cashCount)} accent />
+                <KpiBlock label="Facturas Credito" value={String(cashCreditSplitData.creditCount)} />
+                <KpiBlock label="Total Facturas" value={String(cashCreditSplitData.cashCount + cashCreditSplitData.creditCount)} />
+              </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-4">
+                <KpiBlock label="Cobrado de Creditos" value={currency.format(cashCreditSplitData.creditPaid)} />
+                <KpiBlock label="Pendiente de Creditos" value={currency.format(cashCreditSplitData.creditPending)} accent="red" />
+                <KpiBlock label="% Recuperado" value={cashCreditSplitData.creditTotal > 0 ? `${((cashCreditSplitData.creditPaid / cashCreditSplitData.creditTotal) * 100).toFixed(1)}%` : '0%'} />
+                <KpiBlock label="Deuda Promedio" value={currency.format(cashCreditSplitData.creditCount > 0 ? cashCreditSplitData.creditPending / cashCreditSplitData.creditCount : 0)} />
+              </div>
+            </Panel>
+            <Panel title="Detalle de Ventas a Credito">
+              <DataTable data={creditInvoiceDetails} columns={creditInvoiceColumns} emptyText="No hay facturas a credito." initialPageSize={10} />
+            </Panel>
+          </div>
+        </DetailSection>
+
         <DetailSection label="Pagos e inventario" open={showDetail['payments']} onToggle={() => toggleDetail('payments')}>
           <div className="grid gap-5 xl:grid-cols-2">
             <Panel title="Ingresos por metodo de pago">
@@ -264,23 +325,7 @@ export function Reports() {
           </div>
         </DetailSection>
 
-        <section className="module-surface p-4 sm:p-5">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs font-extrabold uppercase" style={{ color: 'var(--color-analytics)' }}>Detalle de ventas</p>
-              <h3 className="font-display text-2xl font-bold">Tabla detallada de ventas</h3>
-            </div>
-            <select value={mode} onChange={(e) => setMode(e.target.value)} className="input-dark no-print w-36">
-              <option value="all">Todos</option>
-              <option value={invoiceModes.TAXED}>Con ITBIS</option>
-              <option value={invoiceModes.NO_TAX}>Sin ITBIS</option>
-              <option value={invoiceModes.MIXED}>Mixta</option>
-            </select>
-          </div>
-          <div className="mt-4">
-            <DataTable data={filtered} columns={invoiceColumns} emptyText="No hay facturas para estos filtros." />
-          </div>
-        </section>
+
 
         <DetailSection label="Hojas fiscales separadas" open={showDetail['sheets']} onToggle={() => toggleDetail('sheets')}>
           <div className="space-y-5">
@@ -492,6 +537,11 @@ const customerColumns = [
 ]
 const paymentGroupColumns = [
   { header: 'Metodo', accessorKey: 'group' }, { header: 'Operaciones', accessorKey: 'documents' }, { header: 'Ingresos netos', cell: ({ row }) => currency.format(row.original.total || 0) }, { header: 'Ganancia', cell: ({ row }) => currency.format(row.original.profit || 0) },
+]
+const creditInvoiceColumns = [
+  { header: 'Factura', accessorKey: 'number' }, { header: 'Cliente', accessorKey: 'customer' }, { header: 'Fecha', accessorKey: 'date' },
+  { header: 'Total', accessorKey: 'total' }, { header: 'Pagado', accessorKey: 'paid' }, { header: 'Pendiente', accessorKey: 'pending' },
+  { header: '% Pagado', accessorKey: 'pctPaid' }, { header: 'Estado', accessorKey: 'status' },
 ]
 const inventoryColumns = [
   { header: 'Producto', accessorKey: 'name' }, { header: 'SKU', accessorKey: 'sku' }, { header: 'Categoria', accessorKey: 'category' },

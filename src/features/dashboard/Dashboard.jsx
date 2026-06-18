@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { AlertTriangle, ArrowUpRight, Banknote, BarChart3, Boxes, CircleDollarSign, FileMinus2, HandCoins, PackageX, Percent, ReceiptText, Search, Users, Wallet, Zap, TrendingUp, Clock, ShieldAlert } from 'lucide-react'
+import { AlertTriangle, ArrowUpRight, Banknote, BarChart3, Boxes, CircleDollarSign, FileMinus2, FileText, HandCoins, PackageX, Percent, ReceiptText, Search, Users, Wallet, Zap, TrendingUp, Clock, ShieldAlert, Download } from 'lucide-react'
 import { MetricCard } from '../../components/ui/MetricCard'
 import { buildExecutiveDashboardModel } from '../../lib/executiveDashboardEngine'
 import { currency } from '../../lib/formatters'
@@ -27,15 +27,30 @@ export function Dashboard() {
   const cashRegister = useERPStore((state) => state.cashRegister)
   const reportStats = useERPStore((state) => state.reportStats)
   const inventoryReports = useERPStore((state) => state.inventoryReports)
+  const company = useERPStore((state) => state.company)
+
   const model = useMemo(() => buildExecutiveDashboardModel({
     invoices, products, customers, receivables, payments, expenses, creditNotes, cashRegister, reportStats, inventoryReports,
   }), [cashRegister, creditNotes, customers, expenses, inventoryReports, invoices, payments, products, receivables, reportStats])
+
+  const downloadReport = useCallback(async () => {
+    try {
+      const { downloadProfessionalReportPdf } = await import('../../services/professionalReportPdf')
+      await downloadProfessionalReportPdf({ company: company || { name: 'Mi Empresa' }, reportStats, generatedAt: new Date(), user: 'Usuario' })
+    } catch (err) {
+      console.error('Error generating report PDF:', err)
+    }
+  }, [company, reportStats])
 
   const overdueCount = model.openReceivables.filter((i) => i.dueDate && new Date(i.dueDate) < new Date() && i.balance > 0).length
   const lowStockCritical = model.lowStock.length
   const morososCount = new Set(model.openReceivables.filter((i) => i.dueDate && new Date(i.dueDate) < new Date() && i.balance > 0).map((i) => i.customerId)).size
 
   const activeLevel = levelConfig[level]
+  const execIndicators = reportStats?.executiveSummary?.indicators || []
+
+  const topIndicators = execIndicators.filter((i) => ['totalSales', 'totalProfit', 'averageTicket', 'pendingCredits'].includes(i.id))
+  const getColor = (color) => color || 'blue'
 
   return (
     <div className="space-y-6">
@@ -53,12 +68,27 @@ export function Dashboard() {
             <p className="mt-1 max-w-3xl text-sm" style={{ color: 'var(--text-secondary)' }}>Navegacion por niveles — {activeLevel.desc.toLowerCase()}.</p>
           </div>
           <div className="flex items-center gap-3">
+            <button type="button" onClick={downloadReport} className="flex items-center gap-2 rounded-xl border px-4 py-3 text-sm font-bold transition hover:bg-white/5" style={{ borderColor: 'var(--line)', color: 'var(--text-secondary)' }}>
+              <Download size={16} />
+              Reporte PDF profesional
+            </button>
             <span className="flex items-center gap-2 rounded-xl border px-4 py-3 text-sm font-bold" style={{ borderColor: 'var(--line)', color: 'var(--text-secondary)', background: 'rgba(255,255,255,.035)' }}>
               <activeLevel.icon size={16} style={{ color: `var(--${activeLevel.color})` }} />
               Nivel {level}
             </span>
           </div>
         </div>
+        {topIndicators.length > 0 && (
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {topIndicators.map((ind) => (
+              <div key={ind.id} className="rounded-lg border p-3 transition hover:bg-white/[0.02]" style={{ borderColor: `color-mix(in srgb, var(--${getColor(ind.color)}) 25%, transparent)` }}>
+                <p className="text-xs font-bold uppercase tracking-wide" style={{ color: `var(--${getColor(ind.color)})` }}>{ind.label}</p>
+                <p className="mt-1 text-lg font-black">{ind.formatted || String(ind.value)}</p>
+                <p className="mt-0.5 text-xs" style={{ color: 'var(--text-tertiary)' }}>{ind.interpretation?.slice(0, 80)}</p>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="mt-5 hidden gap-2 sm:flex">
           {Object.entries(levelConfig).map(([id, tab]) => {
             const isActive = Number(id) === level
@@ -105,10 +135,10 @@ function LevelHeader({ label, description, color, icon: Icon }) {
 function CriticalLevel({ model, navigate, overdueCount, lowStockCritical, morososCount }) {
   const totals = model.totals || {}
   return (
-    <div key="critical" className="space-y-5">
+    <div className="space-y-5">
       <LevelHeader label="Nivel 1 — Criticos" description="Indicadores que requieren atencion inmediata" color="red" icon={ShieldAlert} />
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard icon={CircleDollarSign} accent="red" label="Ventas vencidas" value={currency.format(totals.receivablesBalance || 0)} detail={`${overdueCount} facturas vencidas`} onOpen={() => navigate('/dashboard/facturas-vencidas')} openLabel="Ver vencidas" />
+        <MetricCard icon={CircleDollarSign} accent="red" label="Ventas vencidas" value={currency.format(totals.overdueBalance || 0)} detail={`${overdueCount} facturas vencidas`} onOpen={() => navigate('/dashboard/facturas-vencidas')} openLabel="Ver vencidas" />
         <MetricCard icon={AlertTriangle} accent="red" label="Stock critico" value={lowStockCritical} detail={`${totals.productsSoldToday || 0} productos vendidos hoy`} onOpen={() => navigate('/dashboard/stock-critico')} openLabel="Ver inventario" />
         <MetricCard icon={Users} accent="red" label="Clientes morosos" value={morososCount} detail={`${overdueCount} facturas en mora`} onOpen={() => navigate('/dashboard/clientes-morosos')} openLabel="Ver morosos" />
         <MetricCard icon={Banknote} accent="amber" label="Ganancia mes" value={currency.format(totals.monthProfit || 0)} detail={`Margen: ${totals.monthSales ? ((totals.monthProfit / totals.monthSales) * 100).toFixed(1) : '0.0'}%`} onOpen={() => navigate('/dashboard/ganancia-mes')} openLabel="Ver ganancia" />
@@ -120,11 +150,11 @@ function CriticalLevel({ model, navigate, overdueCount, lowStockCritical, moroso
 function OperationsLevel({ model, navigate }) {
   const totals = model.totals || {}
   return (
-    <div key="ops" className="space-y-5">
+    <div className="space-y-5">
       <LevelHeader label="Nivel 2 — Actividad operativa" description="Ventas, cobros, abonos y facturacion del dia" color="blue" icon={TrendingUp} />
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard icon={CircleDollarSign} accent="green" label="Ventas contado hoy" value={currency.format(totals.todayCashSales || 0)} detail={`${totals.invoicesToday || 0} facturas · ${currency.format(totals.todayCreditSales || 0)} credito`} miniStats={[{ label: 'Total hoy', value: currency.format(totals.todaySales || 0) }, { label: 'Productos', value: totals.productsSoldToday || 0 }, { label: 'ITBIS', value: currency.format(totals.todayTax || 0) }]} onOpen={() => navigate('/dashboard/ventas-hoy')} openLabel="Ver ventas" />
-        <MetricCard icon={BarChart3} accent="blue" label="Ventas contado mes" value={currency.format(totals.monthCashSales || 0)} detail={`Credito: ${currency.format(totals.monthCreditSales || 0)} · ${model.monthInvoices?.length || 0} docs`} miniStats={[{ label: 'Ganancia', value: currency.format(totals.monthProfit || 0) }, { label: 'Costo', value: currency.format(totals.monthCost || 0) }, { label: 'ITBIS', value: currency.format(totals.monthTax || 0) }]} onOpen={() => navigate('/dashboard/ventas-mes')} openLabel="Ver ventas mes" />
+        <MetricCard icon={CircleDollarSign} accent="green" label="Ventas contado hoy" value={currency.format(totals.todayCashSales || 0)} detail={`${totals.invoicesToday || 0} facturas`} miniStats={[{ label: 'Total hoy', value: currency.format(totals.todaySales || 0) }, { label: 'Productos', value: totals.productsSoldToday || 0 }, { label: 'ITBIS', value: currency.format(totals.todayTax || 0) }]} onOpen={() => navigate('/dashboard/ventas-hoy')} openLabel="Ver ventas" />
+        <MetricCard icon={BarChart3} accent="blue" label="Ventas mes" value={currency.format(totals.monthSales || 0)} detail={`${model.monthInvoices?.length || 0} docs`} miniStats={[{ label: 'Ganancia', value: currency.format(totals.monthProfit || 0) }, { label: 'Contado', value: currency.format(totals.monthCashSales || 0) }, { label: 'Credito', value: currency.format(totals.monthCreditSales || 0) }]} onOpen={() => navigate('/dashboard/ventas-mes')} openLabel="Ver ventas mes" />
         <MetricCard icon={HandCoins} accent="amber" label="Abonos hoy" value={currency.format(totals.abonosToday || 0)} detail={`${totals.abonosMonth || 0} este mes`} miniStats={[{ label: 'Semana', value: currency.format(totals.abonosWeek || 0) }, { label: 'Mes', value: currency.format(totals.abonosMonth || 0) }]} onOpen={() => navigate('/dashboard/abonos-hoy')} openLabel="Ver abonos" />
         <MetricCard icon={Wallet} accent="green" label="Cobros hoy" value={currency.format(totals.cashToday || 0)} detail={model.cashSummary?.status === 'open' ? 'Caja abierta' : 'Caja cerrada'} miniStats={[{ label: 'Semana', value: currency.format(totals.cashWeek || 0) }, { label: 'Mes', value: currency.format(totals.cashMonth || 0) }, { label: 'Movs.', value: model.cashSummary?.movements || 0 }]} onOpen={() => navigate('/dashboard/cobros-hoy')} openLabel="Ver cobros" />
       </div>
@@ -136,7 +166,7 @@ function AlertsLevel({ model, navigate, overdueCount, lowStockCritical, morososC
   const totals = model.totals || {}
   const openRecs = model.openReceivables || []
   return (
-    <div key="alerts" className="space-y-5">
+    <div className="space-y-5">
       <LevelHeader label="Nivel 3 — Alertas y seguimiento" description="Creditos, vencimientos, stock bajo y cuentas por cobrar" color="amber" icon={AlertTriangle} />
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard icon={Wallet} accent="violet" label="Cuentas por cobrar" value={currency.format(totals.receivablesBalance || 0)} detail={`${openRecs.length} balance(s) abiertos`} miniStats={[{ label: 'Abiertas', value: openRecs.length }, { label: 'Vencidas', value: overdueCount }, { label: 'Clientes', value: new Set(openRecs.map((i) => i.customerId)).size }]} onOpen={() => navigate('/dashboard/cuentas-por-cobrar')} openLabel="Ver CxC" />
@@ -151,10 +181,10 @@ function AlertsLevel({ model, navigate, overdueCount, lowStockCritical, morososC
 function AnalysisLevel({ model, customers, navigate }) {
   const totals = model.totals || {}
   return (
-    <div key="analysis" className="space-y-5">
+    <div className="space-y-5">
       <LevelHeader label="Nivel 4 — Analisis y rendimiento" description="Ganancias, impuestos, tendencias y rendimiento mensual" color="violet" icon={BarChart3} />
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard icon={Banknote} accent="amber" label="Ganancia mes" value={currency.format(totals.monthProfit || 0)} detail={`Costo: ${currency.format(totals.monthCost || 0)}`} miniStats={[{ label: 'Margen', value: `${totals.monthSales ? ((totals.monthProfit / totals.monthSales) * 100).toFixed(1) : '0.0'}%` }, { label: 'Ventas', value: currency.format(totals.monthSales || 0) }, { label: 'Docs', value: model.monthInvoices?.length || 0 }]} onOpen={() => navigate('/dashboard/ganancia-mes')} openLabel="Ver ganancia" />
+        <MetricCard icon={Banknote} accent="amber" label="Ganancia mes" value={currency.format(totals.monthProfit || 0)} detail={`Margen: ${totals.monthSales ? ((totals.monthProfit / totals.monthSales) * 100).toFixed(1) : '0.0'}%`} miniStats={[{ label: 'Ventas', value: currency.format(totals.monthSales || 0) }, { label: 'Docs', value: model.monthInvoices?.length || 0 }]} onOpen={() => navigate('/dashboard/ganancia-mes')} openLabel="Ver ganancia" />
         <MetricCard icon={ReceiptText} accent="blue" label="Impuestos mes" value={currency.format(totals.monthTax || 0)} detail="ITBIS calculado 18%" miniStats={[{ label: 'Ventas', value: currency.format(totals.monthSales || 0) }, { label: 'Docs', value: model.monthInvoices?.length || 0 }, { label: 'Notas credito', value: currency.format(totals.creditNotesTotal || 0) }]} onOpen={() => navigate('/dashboard/impuestos-mes')} openLabel="Ver impuestos" />
         <MetricCard icon={BarChart3} accent="cyan" label="Ventas contado semana" value={currency.format(totals.weekCashSales || 0)} detail={`Credito: ${currency.format(totals.weekCreditSales || 0)}`} miniStats={[{ label: 'Total semana', value: currency.format(totals.weekSales || 0) }, { label: 'Mes contado', value: currency.format(totals.monthCashSales || 0) }, { label: 'Docs hoy', value: totals.invoicesToday || 0 }]} onOpen={() => navigate('/dashboard/ventas-semana')} openLabel="Ver semana" />
         <MetricCard icon={Users} accent="cyan" label="Clientes nuevos" value={totals.newCustomersToday || 0} detail={`${customers?.length || 0} clientes registrados`} miniStats={[{ label: 'Total clientes', value: customers?.length || 0 }, { label: 'CxC', value: (model.openReceivables || []).length }, { label: 'Top cliente', value: model.topCustomers?.[0]?.name || '-' }]} onOpen={() => navigate('/dashboard/clientes-nuevos')} openLabel="Ver clientes" />
@@ -166,7 +196,7 @@ function AnalysisLevel({ model, customers, navigate }) {
 function DetailLevel({ model, customers, navigate }) {
   const totals = model.totals || {}
   return (
-    <div key="detail" className="space-y-5">
+    <div className="space-y-5">
       <LevelHeader label="Nivel 5 — Detalle completo" description="Todas las metricas del negocio en un solo vistazo" color="cyan" icon={Zap} />
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard icon={CircleDollarSign} accent="blue" label="Resumen ejecutivo" value={currency.format(totals.monthSales || 0)} detail="Contado y credito separados" miniStats={[{ label: 'Contado mes', value: currency.format(totals.monthCashSales || 0) }, { label: 'Credito mes', value: currency.format(totals.monthCreditSales || 0) }, { label: 'CxC pend.', value: currency.format(totals.receivablesBalance || 0) }, { label: 'Ganancia', value: currency.format(totals.monthProfit || 0) }]} onOpen={() => navigate('/dashboard/resumen-ejecutivo')} openLabel="Ver resumen" />

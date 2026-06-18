@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import { Building2, Pencil, Plus, Save, ShieldCheck, Sparkles, Trash2 } from 'lucide-react'
+import { Building2, Pencil, Plus, Printer, Save, ShieldCheck, Sparkles, Trash2 } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { useToast } from '../../hooks/useToast'
 import { useERPStore } from '../../store/useERPStore'
 import { defaultFiscalSettings, isImageUrl } from '../../lib/tenantEngine'
+import { LABEL_DIMENSIONS } from '../../services/barcodeLabelService'
 
 export function SettingsPage() {
   const toast = useToast()
@@ -246,6 +247,25 @@ export function SettingsPage() {
             ))}
           </div>
         </div>
+      </section>
+
+      <section className="panel rounded-lg p-5">
+        <div className="mb-4 flex items-center gap-3"><Printer className="text-blue-300" /><div><h2 className="font-display text-2xl font-bold">Impresion de etiquetas</h2><p className="text-sm text-white/45">Configuracion para impresoras termicas. 6 metodos: PDF exacto, ZPL, ESC/POS, PNG, WebUSB.</p></div></div>
+        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+          <Field label="Tamaño etiqueta por defecto"><select value={companyDraft.defaultLabelSize || '3x2'} onChange={(e) => setCompanyDraft((s) => ({ ...s, defaultLabelSize: e.target.value }))} className="input-dark">{Object.entries(LABEL_DIMENSIONS).map(([id, dim]) => <option key={id} value={id}>{dim.name}</option>)}</select></Field>
+          <Field label="Incluir precio en etiquetas"><select value={String(companyDraft.labelShowPrice ?? true)} onChange={(e) => setCompanyDraft((s) => ({ ...s, labelShowPrice: e.target.value === 'true' }))} className="input-dark"><option value="true">Si</option><option value="false">No</option></select></Field>
+          <Field label="Metodo de impresion"><select value={companyDraft.labelPrintMode || 'browser'} onChange={(e) => setCompanyDraft((s) => ({ ...s, labelPrintMode: e.target.value }))} className="input-dark"><option value="browser">PDF medidas exactas</option><option value="zpl">Descargar ZPL</option><option value="usb">ZPL WebUSB directo</option><option value="escpos">Descargar ESC/POS</option><option value="escpos-usb">ESC/POS WebUSB directo</option><option value="png">Descargar imagen PNG</option></select></Field>
+          <Field label="Resolucion DPI"><select value={String(companyDraft.labelDpi || 203)} onChange={(e) => setCompanyDraft((s) => ({ ...s, labelDpi: Number(e.target.value) }))} className="input-dark"><option value="203">203 DPI (estandar)</option><option value="300">300 DPI (alta densidad)</option></select></Field>
+        </div>
+        <details className="mt-4 rounded-lg border border-white/10 bg-white/[0.035] p-3">
+          <summary className="cursor-pointer text-sm font-bold text-white/70">Impresoras compatibles</summary>
+          <div className="mt-3 grid gap-3 text-sm text-white/60 md:grid-cols-2 lg:grid-cols-3">
+            <div><p className="font-bold text-white">2connet</p><p>2C-LP427B (4.25", ZPL), 2C-LP281B (2.12", 203DPI), 2C-LP281E (2.12", 300DPI)</p></div>
+            <div><p className="font-bold text-white">Agiler</p><p>AGI-PR4000UB (4", USB+BT), AGI-PR3000U (4", USB), PR7000ULWBT (3", USB+BT+WiFi+LAN)</p></div>
+            <div><p className="font-bold text-white">Epson</p><p>ColorWorks CW-C4000/C6000A (4", inyeccion tinta color), LabelWorks LW-PX300 (portatil)</p></div>
+          </div>
+        </details>
+        <p className="mt-3 text-xs text-white/40">Para impresion USB directa use Chrome/Edge con WebUSB. Para otras impresoras descargue el archivo ZPL y envielo con ZebraNet Bridge, BarTender o la herramienta del fabricante.</p>
       </section>
 
       <section className="panel rounded-lg p-5">

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Copy, ExternalLink, FileText, MessageCircle, Pencil, Plus, RefreshCcw, Search, Trash2, Printer, Download } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '../../components/ui/Button'
@@ -46,10 +46,18 @@ export function QuoteList() {
       body: `Se eliminara la cotizacion de ${quote.customerName || 'cliente'} por ${currency.format(quote.totals?.total || 0)}.`,
       danger: true,
     })
-    if (ok) action(() => deleteQuote(quote.id), 'Cotizacion eliminada.')
+    if (!ok) return
+    const deleted = action(() => deleteQuote(quote.id), 'Cotizacion eliminada.')
+    if (deleted !== null) {
+      if (viewing?.id === quote.id) setViewing(null)
+      if (convert?.id === quote.id) setConvert(null)
+    }
   }
 
-  const filteredQuotes = quotes.filter((quote) => `${quote.number || ''} ${quote.customerName || ''} ${quote.status || ''}`.toLowerCase().includes(query.toLowerCase()))
+  const filteredQuotes = useMemo(() => {
+    const term = query.toLowerCase().trim()
+    return quotes.filter((quote) => `${safeQuoteNumber(quote.number)} ${quote.customerName || ''} ${quote.status || ''} ${quote.version || ''}`.toLowerCase().includes(term))
+  }, [query, quotes])
 
   const columns = [
     { header: '#', accessorKey: 'number', cell: ({ row }) => safeQuoteNumber(row.original.number), sortValueFn: (row) => safeQuoteNumber(row.number) },
@@ -65,7 +73,7 @@ export function QuoteList() {
         <div className="flex flex-wrap gap-1">
           <Icon title="Ver" icon={FileText} onClick={() => setViewing(row.original)} />
           <Icon title="Editar" icon={Pencil} onClick={() => navigate(`/cotizaciones/${row.original.id}/editar`)} />
-          <Icon title="Nueva version" icon={RefreshCcw} onClick={() => navigate(`/cotizaciones/${action(() => newQuoteVersion(row.original.id), 'Nueva version creada.')?.id}/editar`)} />
+          <Icon title="Nueva version" icon={RefreshCcw} onClick={() => { const versioned = action(() => newQuoteVersion(row.original.id), 'Nueva version creada.'); if (versioned?.id) navigate(`/cotizaciones/${versioned.id}/editar`) }} />
           <Icon title="Convertir" icon={Copy} onClick={() => setConvert(row.original)} />
           <Icon title="Duplicar" icon={Copy} onClick={() => { const dup = action(() => upsertQuote({ ...row.original, id: undefined, number: undefined, status: 'Borrador', version: 1 }), 'Cotizacion duplicada.'); if (dup) navigate(`/cotizaciones/${dup.id}/editar`) }} />
           <Icon title="WhatsApp" icon={MessageCircle} onClick={() => openWhatsApp(row.original, customers, company)} />
