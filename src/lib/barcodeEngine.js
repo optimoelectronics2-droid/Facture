@@ -13,7 +13,7 @@ const CODE_128_PATTERNS = [
 ]
 
 export function buildCode128Bars(value) {
-  const text = sanitizeCode(value)
+  const text = sanitizeCode128Value(value)
   const values = [...text].map((character) => {
     const code = character.charCodeAt(0)
     return code >= 32 && code <= 126 ? code - 32 : 31
@@ -33,7 +33,27 @@ export function buildCode128Bars(value) {
   return { text, bars, width: x }
 }
 
-function sanitizeCode(value) {
-  return String(value || 'SIN-CODIGO').trim().slice(0, 48) || 'SIN-CODIGO'
+export function sanitizeCode128Value(value) {
+  const normalized = String(value || 'SIN-CODIGO')
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\x20-\x7E]/g, '')
+    .slice(0, 48)
+  return normalized || 'SIN-CODIGO'
 }
 
+export function getCode128Layout(barcode, availableWidth, quietModules = 10) {
+  const safeWidth = Math.max(Number(availableWidth) || 0, 1)
+  const quiet = Math.max(Number(quietModules) || 0, 0)
+  const totalModules = barcode.width + quiet * 2
+  const scale = safeWidth / totalModules
+  const quietWidth = quiet * scale
+  return {
+    scale,
+    quietWidth,
+    barWidth: barcode.width * scale,
+    totalWidth: totalModules * scale,
+    totalModules,
+  }
+}

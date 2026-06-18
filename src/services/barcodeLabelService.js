@@ -1,4 +1,4 @@
-import { buildCode128Bars } from '../lib/barcodeEngine'
+import { buildCode128Bars, getCode128Layout, sanitizeCode128Value } from '../lib/barcodeEngine'
 
 const SIZES = {
   '2x1': { widthIn: 2, heightIn: 1, cols: 4, name: '2" x 1"' },
@@ -38,23 +38,39 @@ function buildLabelContent(product, opts = {}) {
     name: String(product.name || 'Producto').trim().slice(0, 40),
     sku: includeSku ? String(sku).trim().slice(0, 20) : '',
     price: includePrice ? Number(product.price || product.salePrice || 0) : 0,
-    barcode: String(barcode).trim().slice(0, 48) || 'SIN-CODIGO',
+    barcode: sanitizeBarcodePayload(barcode),
   }
+}
+
+function sanitizeBarcodePayload(value) {
+  return sanitizeCode128Value(value)
+}
+
+function zplField(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\x20-\x7E]/g, '')
+    .replace(/[\^~_\\]/g, (char) => {
+    const code = char.charCodeAt(0)
+    return `_${code.toString(16).toUpperCase().padStart(2, '0')}`
+  })
 }
 
 /* =================================================================
    ZPL
    ================================================================= */
-function zplFit(c, dim, includePrice, includeSku) {
+function zplFit(c, dim, includePrice) {
   const margin = Math.round(dim.widthDots * 0.04)
   const usableW = dim.widthDots - margin * 2
   let y = margin
   const maxY = dim.heightDots - margin
 
   const bc = buildCode128Bars(c.barcode)
-  const barModule = 2
-  const bcWidthDots = bc.width * barModule
-  const bcX = Math.max(margin, margin + Math.round((usableW - bcWidthDots) / 2))
+  const totalModules = bc.width + 20
+  const barModule = Math.max(1, Math.min(3, Math.floor(usableW / totalModules) || 1))
+  const bcTotalDots = totalModules * barModule
+  const bcX = margin + Math.max(0, Math.round((usableW - bcTotalDots) / 2)) + 10 * barModule
 
   let nameFs = Math.min(Math.round(dim.heightDots * 0.13), 35)
   let priceFs = Math.min(Math.round(dim.heightDots * 0.17), 48)
@@ -78,20 +94,20 @@ function zplFit(c, dim, includePrice, includeSku) {
   }
   if (totalNeeded > maxY) { dropSku = true; totalNeeded = nameH + priceH + Math.round(dim.heightDots * 0.16) + 6 }
   if (totalNeeded > maxY && c.price > 0) { dropPrice = true; totalNeeded = nameH + Math.round(dim.heightDots * 0.16) + 6 }
-  if (totalNeeded > maxY) { nameFs = Math.max(8, nameFs - 2); nameH = nameFs + Math.round(dim.heightDots * 0.02); totalNeeded = nameH + Math.round(dim.heightDots * 0.12) + 4 }
+  if (totalNeeded > maxY) { nameFs = Math.max(8, nameFs - 2); nameH = nameFs + Math.round(dim.heightDots * 0.02) }
 
   const bcH = Math.max(18, Math.min(Math.round(maxY * 0.4), maxY - y - nameH - (dropSku ? 0 : skuH) - (dropPrice ? 0 : priceH) - 6))
 
   const lines = []
   function z(t) { lines.push(t) }
   z('^XA'); z(`^LL${dim.heightDots}`); z(`^PW${dim.widthDots}`)
-  z(`^CF0,${nameFs}`); z(`^FO${margin},${y}^FD${c.name}^FS`); y += nameH
-  if (c.sku && !dropSku) { z(`^CF0,${skuFs}`); z(`^FO${margin},${y}^FDSKU:${c.sku}^FS`); y += skuH }
+  z(`^CF0,${nameFs}`); z(`^FO${margin},${y}^FH^FD${zplField(c.name)}^FS`); y += nameH
+  if (c.sku && !dropSku) { z(`^CF0,${skuFs}`); z(`^FO${margin},${y}^FH^FDSKU:${zplField(c.sku)}^FS`); y += skuH }
   if (c.price > 0 && includePrice && !dropPrice) {
     z(`^CF0,${priceFs}`)
-    z(`^FO${margin},${y}^FDRD$${c.price.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}^FS`); y += priceH
+    z(`^FO${margin},${y}^FH^FDRD$${zplField(c.price.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','))}^FS`); y += priceH
   }
-  z(`^FO${bcX},${y}^BY${barModule}^BCN,${bcH},Y,N,N`); z(`^FD${c.barcode}^FS`)
+  z(`^FO${bcX},${y}^BY${barModule}^BCN,${bcH},Y,N,N`); z(`^FH^FD${zplField(c.barcode)}^FS`)
   lines.push('^XZ')
   return lines.join('\n')
 }
@@ -100,7 +116,7 @@ export function generateZPL(product, { labelSize = '3x2', includePrice = true, i
   const dim = getLabelDim(labelSize, dpi)
   const c = buildLabelContent(product, { includePrice, includeSku, barcode, sku })
   let result = ''
-  for (let i = 0; i < quantity; i++) result += zplFit(c, dim, includePrice, includeSku) + '\n'
+  for (let i = 0; i < quantity; i++) result += zplFit(c, dim, includePrice) + '\n'
   return result.trim()
 }
 
@@ -120,6 +136,32 @@ function encodeText(str, maxChars) {
   return new TextEncoder().encode((str || '').slice(0, maxChars || 48) + '\n')
 }
 
+function fitCanvasLines(ctx, text, maxWidth, maxLines) {
+  const words = String(text || '').trim().slice(0, 40).split(/\s+/).filter(Boolean)
+  const lines = []
+  for (const word of words) {
+    const current = lines[lines.length - 1] || ''
+    const test = current ? current + ' ' + word : word
+    if (!current || ctx.measureText(test).width <= maxWidth) {
+      if (current) lines[lines.length - 1] = test
+      else lines.push(test)
+      continue
+    }
+    if (lines.length >= maxLines) break
+    lines.push(word)
+  }
+  if (lines.length > maxLines) lines.length = maxLines
+  if (!lines.length) lines.push('Producto')
+  const full = words.join(' ')
+  for (let index = 0; index < lines.length; index++) {
+    let line = lines[index]
+    const shouldEllipsize = index === lines.length - 1 && full !== lines.join(' ')
+    while (line.length > 1 && ctx.measureText(line + (shouldEllipsize ? '...' : '')).width > maxWidth) line = line.slice(0, -1).trim()
+    lines[index] = line + (shouldEllipsize ? '...' : '')
+  }
+  return lines
+}
+
 export function generateESCPOS(product, { labelSize = '3x2', includePrice = true, includeSku = true, quantity = 1, dpi = 203, barcode = '', sku = '' } = {}) {
   const dim = getLabelDim(labelSize, dpi)
   const c = buildLabelContent(product, { includePrice, includeSku, barcode, sku })
@@ -136,11 +178,13 @@ export function generateESCPOS(product, { labelSize = '3x2', includePrice = true
     cmd(0x1B, 0x21, 0x08); raw(encodeText(c.name, maxChars))
     if (c.sku) { cmd(0x1B, 0x21, 0x01); raw(encodeText('SKU: ' + c.sku, maxChars)) }
     if (c.price > 0) { cmd(0x1B, 0x21, 0x30); raw(encodeText('RD$' + c.price.toFixed(2), maxChars)) }
-    const barcodeBytes = encoder.encode(String(c.barcode || ''))
+    const barcodeBytes = encoder.encode(sanitizeBarcodePayload(c.barcode))
     cmd(0x1D, 0x68, Math.min(0xFF, Math.round(dim.heightDots * 0.35)))
-    cmd(0x1D, 0x77, Math.min(5, Math.max(2, Math.round(barcodeBytes.length / 10))))
-    cmd(0x1D, 0x6B, 0x49, (barcodeBytes.length + 2) & 0xFF, ((barcodeBytes.length + 2) >> 8) & 0xFF)
-    raw(new Uint8Array([0x7B, 0x42])); raw(barcodeBytes); cmd(0x00)
+    const bc = buildCode128Bars(c.barcode)
+    const moduleWidth = Math.max(1, Math.min(6, Math.floor((dim.widthDots * 0.9) / (bc.width + 20)) || 1))
+    cmd(0x1D, 0x77, moduleWidth)
+    cmd(0x1D, 0x6B, 0x49, barcodeBytes.length + 2)
+    raw(new Uint8Array([0x7B, 0x42])); raw(barcodeBytes)
     cmd(0x1D, 0x56, 0x00)
     return chunks
   }
@@ -196,21 +240,24 @@ async function canvasToPngBlob(canvas, dpi) {
   pHYsData[6] = (ppm >> 8) & 0xFF; pHYsData[7] = ppm & 0xFF
   pHYsData[8] = 1
   const type = new TextEncoder().encode('pHYs')
-  const chunkData = new Uint8Array(type.length + pHYsData.length)
-  chunkData.set(type, 0); chunkData.set(pHYsData, type.length)
-  const crc = crc32(chunkData)
+  const crcInput = new Uint8Array(type.length + pHYsData.length)
+  crcInput.set(type, 0); crcInput.set(pHYsData, type.length)
+  const crc = crc32(crcInput)
   const chunkLen = pHYsData.length
-  const header = new Uint8Array(8)
-  header[0] = (chunkLen >> 24) & 0xFF; header[1] = (chunkLen >> 16) & 0xFF
-  header[2] = (chunkLen >> 8) & 0xFF; header[3] = chunkLen & 0xFF
-  header[4] = (crc >> 24) & 0xFF; header[5] = (crc >> 16) & 0xFF
-  header[6] = (crc >> 8) & 0xFF; header[7] = crc & 0xFF
+  const chunk = new Uint8Array(4 + type.length + pHYsData.length + 4)
+  chunk[0] = (chunkLen >> 24) & 0xFF; chunk[1] = (chunkLen >> 16) & 0xFF
+  chunk[2] = (chunkLen >> 8) & 0xFF; chunk[3] = chunkLen & 0xFF
+  chunk.set(type, 4)
+  chunk.set(pHYsData, 8)
+  chunk[17] = (crc >> 24) & 0xFF; chunk[18] = (crc >> 16) & 0xFF
+  chunk[19] = (crc >> 8) & 0xFF; chunk[20] = crc & 0xFF
   const sigLen = 8
-  const result = new Uint8Array(sigLen + header.length + chunkData.length + bytes.length - sigLen)
-  result.set(bytes.subarray(0, sigLen), 0)
-  result.set(header, sigLen)
-  result.set(chunkData, sigLen + header.length)
-  result.set(bytes.subarray(sigLen), sigLen + header.length + chunkData.length)
+  const ihdrLength = (bytes[8] << 24) | (bytes[9] << 16) | (bytes[10] << 8) | bytes[11]
+  const insertAt = sigLen + 4 + 4 + ihdrLength + 4
+  const result = new Uint8Array(bytes.length + chunk.length)
+  result.set(bytes.subarray(0, insertAt), 0)
+  result.set(chunk, insertAt)
+  result.set(bytes.subarray(insertAt), insertAt + chunk.length)
   return new Blob([result], { type: 'image/png' })
 }
 
@@ -231,7 +278,8 @@ export function renderLabelToCanvas(product, { labelSize = '3x2', includePrice =
   let nameFs = Math.max(10, pxH * 0.065)
   let skuFs = Math.max(8, pxH * 0.045)
   let priceFs = Math.max(14, pxH * 0.085)
-  let nameH = nameFs * 1.25
+  const maxNameLines = dim.heightIn <= 1 ? 1 : 2
+  let nameH = nameFs * 1.05 * maxNameLines
   let skuH = c.sku ? skuFs * 1.1 : 0
   let priceH = (c.price > 0 && includePrice) ? priceFs * 1.3 : 0
   let barH = Math.max(20, pxH * 0.18)
@@ -242,37 +290,36 @@ export function renderLabelToCanvas(product, { labelSize = '3x2', includePrice =
   if (totalH > maxY) {
     const s = maxY / totalH
     nameFs = Math.max(7, nameFs * s); skuFs = Math.max(5, skuFs * s); priceFs = Math.max(10, priceFs * s)
-    nameH = nameFs * 1.2; skuH = c.sku ? skuFs * 1.05 : 0; priceH = (c.price > 0 && includePrice) ? priceFs * 1.2 : 0
+    nameH = nameFs * 1.0 * maxNameLines; skuH = c.sku ? skuFs * 1.05 : 0; priceH = (c.price > 0 && includePrice) ? priceFs * 1.2 : 0
     barH = Math.max(14, barH * s); totalH = nameH + skuH + priceH + barH + margin * 1.5
   }
   if (totalH > maxY && c.sku) { dropSku = true; skuH = 0; totalH = nameH + priceH + barH + margin * 1.5 }
   if (totalH > maxY && c.price > 0) { dropPrice = true; priceH = 0; totalH = nameH + barH + margin * 1.5 }
-  if (totalH > maxY) { nameFs = Math.max(6, nameFs - 1); nameH = nameFs * 1.1; barH = Math.max(10, barH - 2); totalH = nameH + barH + margin }
+  if (totalH > maxY) { nameFs = Math.max(6, nameFs - 1); nameH = nameFs * 0.9 * maxNameLines; barH = Math.max(10, barH - 2) }
 
   let y = margin + nameFs * 0.3
   ctx.textAlign = 'center'; ctx.fillStyle = '#111827'
 
   ctx.font = `bold ${nameFs}px sans-serif`
-  const nameWidth = ctx.measureText(c.name).width
-  if (nameWidth > usableW) {
-    const words = c.name.split(' '); let line = ''
-    for (const word of words) {
-      const test = line ? line + ' ' + word : word
-      if (ctx.measureText(test).width > usableW && line) { ctx.fillText(line, pxW / 2, y); line = word; y += nameFs + 2 }
-      else { line = test }
-    }
-    if (line) { ctx.fillText(line, pxW / 2, y); y += nameFs + 2 }
-  } else { ctx.fillText(c.name, pxW / 2, y); y += nameH }
+  const nameLines = fitCanvasLines(ctx, c.name, usableW, maxNameLines)
+  nameLines.forEach((line, index) => ctx.fillText(line, pxW / 2, y + index * nameFs * 0.9))
+  y += nameH
 
   if (c.sku && !dropSku) { ctx.font = `${skuFs}px sans-serif`; ctx.fillStyle = '#374151'; ctx.fillText('SKU: ' + c.sku, pxW / 2, y); y += skuH; ctx.fillStyle = '#111827' }
   if (c.price > 0 && includePrice && !dropPrice) { ctx.font = `bold ${priceFs}px sans-serif`; ctx.fillText('RD$ ' + c.price.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','), pxW / 2, y); y += priceH }
 
   const bc = buildCode128Bars(c.barcode)
   if (bc && bc.bars.length) {
-    const s = (usableW - 4) / bc.width
-    const barY = y
-    for (const bar of bc.bars) ctx.fillRect(margin + 2 + bar.x * s, barY, Math.max(bar.width * s, 0.6), barH)
-    y = barY + barH + Math.round(margin * 0.5)
+    const layout = getCode128Layout(bc, usableW - 4)
+    const startX = margin + 2 + Math.max(0, (usableW - 4 - layout.totalWidth) / 2)
+    const barY = Math.round(y)
+    const barHH = Math.round(barH)
+    for (const bar of bc.bars) {
+      const x = Math.round(startX + layout.quietWidth + bar.x * layout.scale)
+      const w = Math.max(Math.round(bar.width * layout.scale), 1)
+      ctx.fillRect(x, barY, w, barHH)
+    }
+    y = barY + barHH + Math.round(margin * 0.5)
   }
 
   const codeTextH = maxY - y

@@ -11,7 +11,7 @@ import { useDebouncedValue } from '../../hooks/useDebouncedValue'
 import { useERPStore } from '../../store/useERPStore'
 import { downloadCsv } from '../../lib/csvExport'
 import { currency, formatDate } from '../../lib/formatters'
-import { buildCode128Bars } from '../../lib/barcodeEngine'
+import { buildCode128Bars, getCode128Layout, sanitizeCode128Value } from '../../lib/barcodeEngine'
 import { generateZPL, downloadZplFile, sendToUsbPrinter, generateESCPOS, downloadEscposFile, sendEscposToUsb, renderLabelToCanvas, downloadLabelPng, LABEL_DIMENSIONS, PRINT_MODES } from '../../services/barcodeLabelService'
 import jsPDF from 'jspdf'
 
@@ -95,7 +95,8 @@ export function Inventory() {
   }, [inventoryPageSize, safeInventoryPage, sortedInventory])
 
   useEffect(() => {
-    setInventoryPage(1)
+    const timer = window.setTimeout(() => setInventoryPage(1), 0)
+    return () => window.clearTimeout(timer)
   }, [debouncedQuery, filters.brand, filters.category, filters.low, filters.status, filters.tax, inventoryPageSize, inventorySort])
 
   async function saveProduct(product) {
@@ -290,7 +291,6 @@ function StockIndicator({ product }) {
   const pct = Math.min((stock / max) * 100, 100)
   const empty = stock <= 0
   const low = stock > 0 && stock <= min
-  const ok = stock > min
   const barColor = empty ? 'var(--color-alert)' : low ? 'var(--color-pending)' : 'var(--color-income)'
   return (
     <div className="min-w-[100px]">
@@ -454,16 +454,43 @@ function getSelectedBarcode(product, source, manualCode) {
       : source === 'sku'
         ? product.sku
         : product.id
-  return String(value || '').trim().slice(0, 48)
+  const raw = String(value || '').trim()
+  return raw ? sanitizeCode128Value(raw) : ''
 }
 
 function getLabelQuantity(product, quantity, mode) {
   const base = mode === 'stock' ? Number(product.stock || 0) : Number(quantity || 1)
-  return Math.max(1, Math.min(Math.round(base || 1), 120))
+  const min = mode === 'stock' ? 0 : 1
+  return Math.max(min, Math.min(Math.round(base || 0), 120))
 }
 
 function sanitizeFilename(value) {
   return String(value || 'producto').replace(/[\\/:*?"<>|]+/g, '-').slice(0, 60)
+}
+
+function fitPdfLines(pdf, text, maxWidth, maxLines) {
+  const words = String(text || '').trim().slice(0, 40).split(/\s+/).filter(Boolean)
+  const lines = []
+  for (const word of words) {
+    const current = lines[lines.length - 1] || ''
+    const test = current ? current + ' ' + word : word
+    if (!current || pdf.getTextWidth(test) <= maxWidth) {
+      if (current) lines[lines.length - 1] = test
+      else lines.push(test)
+      continue
+    }
+    if (lines.length >= maxLines) break
+    lines.push(word)
+  }
+  if (lines.length > maxLines) lines.length = maxLines
+  const full = words.join(' ')
+  for (let index = 0; index < lines.length; index++) {
+    let line = lines[index]
+    const shouldEllipsize = index === lines.length - 1 && full !== lines.join(' ')
+    while (line.length > 1 && pdf.getTextWidth(line + (shouldEllipsize ? '...' : '')) > maxWidth) line = line.slice(0, -1).trim()
+    lines[index] = line + (shouldEllipsize ? '...' : '')
+  }
+  return lines.length ? lines : ['Producto']
 }
 
 function BarcodeLabelPrinter({ product }) {
@@ -472,10 +499,10 @@ function BarcodeLabelPrinter({ product }) {
   const [quantityMode, setQuantityMode] = useState('manual')
   const [source, setSource] = useState(product.barcode ? 'barcode' : product.sku ? 'sku' : 'id')
   const [manualCode, setManualCode] = useState('')
-  const [labelSize, setLabelSize] = useState(LABEL_SIZES[0])
-  const [showPrice, setShowPrice] = useState(true)
+  const [labelSize, setLabelSize] = useState(() => LABEL_SIZES.find((size) => size.id === company?.defaultLabelSize) || LABEL_SIZES[0])
+  const [showPrice, setShowPrice] = useState(company?.labelShowPrice ?? true)
   const [showSku, setShowSku] = useState(true)
-  const [printMode, setPrintMode] = useState('browser')
+  const [printMode, setPrintMode] = useState(company?.labelPrintMode || 'browser')
   const [zplStatus, setZplStatus] = useState('')
   const code = getSelectedBarcode(product, source, manualCode)
   const qty = getLabelQuantity(product, quantity, quantityMode)
@@ -488,6 +515,10 @@ function BarcodeLabelPrinter({ product }) {
       return
     }
     const qty = getLabelQuantity(product, quantity, quantityMode)
+    if (qty < 1) {
+      setZplStatus('Error: no hay etiquetas para imprimir con la cantidad actual.')
+      return
+    }
     const opts = { labelSize: labelSize.id, includePrice: showPrice, includeSku: showSku, quantity: qty, barcode: selectedCode, sku: product.sku, dpi: company?.labelDpi || 203 }
     const sku = sanitizeFilename(product.sku || selectedCode || product.id)
 
@@ -505,26 +536,21 @@ function BarcodeLabelPrinter({ product }) {
           let nameFs = Math.min(mmH * 0.28, 9)
           let priceFs = Math.min(mmH * 0.38, 12)
           let skuFs = nameFs * 0.7
-          let nameH = nameFs * 0.7; let skuH = showSku && product.sku ? skuFs * 0.6 : 0; let priceH = (showPrice && Number(product.price || 0) > 0) ? priceFs * 0.65 : 0
+          const maxNameLines = mmH <= 25.4 ? 1 : 2
+          let nameH = nameFs * 0.72 * maxNameLines; let skuH = showSku && product.sku ? skuFs * 0.6 : 0; let priceH = (showPrice && Number(product.price || 0) > 0) ? priceFs * 0.65 : 0
           let barH = Math.min(mmH * 0.32, Math.max(6, Math.round(mmH * 0.25)))
           let totalH = nameH + skuH + priceH + barH + margin * 0.5
           let dropSku = false; let dropPrice = false
 
-          if (totalH > maxY) { const s = maxY / totalH; nameFs = Math.max(4, nameFs * s); priceFs = Math.max(5, priceFs * s); skuFs = nameFs * 0.7; barH = Math.max(3, barH * s); nameH = nameFs * 0.65; skuH = showSku && product.sku ? skuFs * 0.55 : 0; priceH = priceFs * 0.55; totalH = nameH + skuH + priceH + barH + margin * 0.35 }
+          if (totalH > maxY) { const s = maxY / totalH; nameFs = Math.max(4, nameFs * s); priceFs = Math.max(5, priceFs * s); skuFs = nameFs * 0.7; barH = Math.max(3, barH * s); nameH = nameFs * 0.65 * maxNameLines; skuH = showSku && product.sku ? skuFs * 0.55 : 0; priceH = priceFs * 0.55; totalH = nameH + skuH + priceH + barH + margin * 0.35 }
           if (totalH > maxY && showSku && product.sku) { dropSku = true; skuH = 0; totalH = nameH + priceH + barH + margin * 0.35 }
           if (totalH > maxY) { dropPrice = true; priceH = 0; totalH = nameH + barH + margin * 0.35 }
-          if (totalH > maxY) { nameFs = Math.max(3, nameFs - 1); nameH = nameFs * 0.55; barH = Math.max(2, barH - 2); totalH = nameH + barH + margin * 0.25 }
+          if (totalH > maxY) { nameFs = Math.max(3, nameFs - 1); nameH = nameFs * 0.55 * maxNameLines; barH = Math.max(2, barH - 2); totalH = nameH + barH + margin * 0.25 }
 
           pdf.setFont('helvetica', 'bold'); pdf.setFontSize(nameFs)
-          const nameParts = String(product.name || 'Producto').trim().slice(0, 40).split(' ')
-          let nameLine = ''
-          for (const word of nameParts) {
-            const test = nameLine ? nameLine + ' ' + word : word
-            if (pdf.getTextWidth(test) > usableW && nameLine) { pdf.text(nameLine, mmW / 2, y, { align: 'center' }); nameLine = word; y += nameFs * 0.45 }
-            else { nameLine = test }
-          }
-          if (nameLine) { pdf.text(nameLine, mmW / 2, y, { align: 'center' }); y += nameH }
-          else { y += nameH * 0.5 }
+          const nameLines = fitPdfLines(pdf, product.name || 'Producto', usableW, maxNameLines)
+          nameLines.forEach((line, index) => pdf.text(line, mmW / 2, y + index * nameFs * 0.58, { align: 'center' }))
+          y += nameH
 
           if (!dropSku && showSku && product.sku) {
             pdf.setFont('helvetica', 'normal'); pdf.setFontSize(skuFs)
@@ -536,8 +562,13 @@ function BarcodeLabelPrinter({ product }) {
           }
 
           const bc = buildCode128Bars(selectedCode)
-          const s = (usableW - 3) / (bc.width || 1)
-          bc.bars.forEach((bar) => pdf.rect(margin + 1.5 + bar.x * s, y + 0.5, Math.max(bar.width * s, 0.1), barH, 'F'))
+          const layout = getCode128Layout(bc, usableW - 3)
+          const startX = margin + 1.5 + Math.max(0, (usableW - 3 - layout.totalWidth) / 2)
+          bc.bars.forEach((bar) => {
+            const x = startX + layout.quietWidth + bar.x * layout.scale
+            const w = Math.max(bar.width * layout.scale, 0.1)
+            pdf.rect(Math.round(x * 10) / 10, y + 0.5, Math.round(w * 10) / 10, barH, 'F')
+          })
           y += barH + mmH * 0.04
 
           const codeRemain = maxY - y
@@ -596,12 +627,12 @@ function BarcodeLabelPrinter({ product }) {
   return (
     <div className="space-y-4">
       <div className="no-print grid gap-3 sm:grid-cols-2 md:grid-cols-[1fr_130px_100px_80px_auto]">
-        <label><span className="label-dark">Codigo a imprimir</span><select value={source} onChange={(event) => setSource(event.target.value)} className="input-dark"><option value="barcode">Codigo de barras</option><option value="sku">SKU</option><option value="id">ID interno</option><option value="manual">Manual</option></select></label>
+        <label><span className="label-dark">Codigo a imprimir</span><select value={source} onChange={(event) => setSource(event.target.value)} className="input-dark"><option value="barcode" disabled={!product.barcode}>Codigo de barras</option><option value="sku" disabled={!product.sku}>SKU</option><option value="id">ID interno</option><option value="manual">Manual</option></select></label>
         <label><span className="label-dark">Tamaño</span><select value={labelSize.id} onChange={(event) => setLabelSize(LABEL_SIZES.find((s) => s.id === event.target.value) || LABEL_SIZES[0])} className="input-dark">{LABEL_SIZES.map((size) => <option key={size.id} value={size.id}>{size.name}</option>)}</select></label>
         <label><span className="label-dark">Cantidad</span><input type="number" min="1" max="120" value={quantityMode === 'stock' ? qty : quantity} onChange={(event) => setQuantity(event.target.value)} disabled={quantityMode === 'stock'} className="input-dark" /></label>
         <label className="flex items-center gap-2 pt-6 text-sm"><input type="checkbox" checked={showPrice} onChange={(e) => setShowPrice(e.target.checked)} /> Precio</label>
         <label><span className="label-dark">Metodo</span><select value={printMode} onChange={(event) => setPrintMode(event.target.value)} className="input-dark">{PRINT_MODES.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</select></label>
-        <Button icon={Printer} variant="primary" className="self-end" onClick={handlePrint}>
+        <Button icon={Printer} variant="primary" className="self-end" onClick={handlePrint} disabled={!code || qty < 1}>
           {printMode === 'browser' ? 'Imprimir' : printMode === 'usb' || printMode === 'escpos-usb' ? 'Enviar a USB' : 'Descargar'}
         </Button>
       </div>
@@ -611,6 +642,8 @@ function BarcodeLabelPrinter({ product }) {
         <label className="flex items-center gap-2 pt-6 text-sm"><input type="checkbox" checked={showSku} onChange={(e) => setShowSku(e.target.checked)} /> SKU</label>
       </div>
       {zplStatus && <p className="text-sm text-emerald-300">{zplStatus}</p>}
+      {!code ? <p className="text-sm text-amber-300">Seleccione un codigo existente o use el modo manual.</p> : null}
+      {quantityMode === 'stock' && qty === 0 ? <p className="text-sm text-amber-300">El producto no tiene stock disponible para generar etiquetas automaticas.</p> : null}
       <div className="mt-2 text-xs text-white/40">{PRINT_MODES.find((m) => m.id === printMode)?.desc}</div>
       <div className={`label-grid grid gap-2 ${labelSize.id === '2x1' ? 'grid-cols-4' : labelSize.id === '4x2' || labelSize.id === '4x3' ? 'grid-cols-2' : 'grid-cols-3'}`}>
         {labels.map((_, index) => (
@@ -631,9 +664,11 @@ function BarcodeLabelPrinter({ product }) {
 
 function BarcodeSvg({ value, height = 32 }) {
   const barcode = buildCode128Bars(value)
+  const quiet = 10
+  const width = barcode.width + quiet * 2
   return (
-    <svg viewBox={`0 0 ${barcode.width} ${height + 6}`} role="img" aria-label={`Codigo ${barcode.text}`} className="mx-auto w-full max-w-[220px] bg-white" style={{ height: `${height + 6}px` }}>
-      {barcode.bars.map((bar, index) => <rect key={`${bar.x}-${index}`} x={bar.x} y="3" width={bar.width} height={height} fill="#111827" />)}
+    <svg viewBox={`0 0 ${width} ${height + 6}`} role="img" aria-label={`Codigo ${barcode.text}`} shapeRendering="crispEdges" className="mx-auto w-full max-w-[220px] bg-white" style={{ height: `${height + 6}px` }}>
+      {barcode.bars.map((bar, index) => <rect key={`${bar.x}-${index}`} x={quiet + bar.x} y="3" width={Math.max(bar.width, 1)} height={height} fill="#111827" />)}
     </svg>
   )
 }
@@ -736,10 +771,6 @@ function InventoryCategoryStrip({ rows }) {
   )
 }
 
-function StatusBadge({ product }) {
-  const deleted = Boolean(product.deletedAt) || product.status === 'Eliminado'
-  return <span className={deleted ? 'rounded px-2 py-1 text-xs font-bold' : 'rounded px-2 py-1 text-xs font-bold'} style={deleted ? { background: 'rgba(239,68,68,.15)', color: 'rgb(254,202,202)' } : { background: 'rgba(16,185,129,.15)', color: 'rgb(110,231,183)' }}>{deleted ? 'Eliminado' : product.status || 'Activo'}</span>
-}
 function CompactField({ label, children, error, className }) {
   return <label className={className}><span className="label-dark text-xs">{label}</span>{children}{error ? <span className="mt-0.5 block text-xs font-bold" style={{ color: 'rgb(252,165,165)' }}>{error}</span> : null}</label>
 }
