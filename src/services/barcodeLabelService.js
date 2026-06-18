@@ -1,12 +1,23 @@
 import { buildCode128Bars } from '../lib/barcodeEngine'
 
-const DPI = 203
-export const LABEL_DIMENSIONS = {
-  '2x1': { widthIn: 2, heightIn: 1, widthDots: 2 * DPI, heightDots: 1 * DPI, cols: 4, name: '2" x 1"' },
-  '3x2': { widthIn: 3, heightIn: 2, widthDots: 3 * DPI, heightDots: 2 * DPI, cols: 3, name: '3" x 2"' },
-  '4x2': { widthIn: 4, heightIn: 2, widthDots: 4 * DPI, heightDots: 2 * DPI, cols: 2, name: '4" x 2"' },
-  '4x3': { widthIn: 4, heightIn: 3, widthDots: 4 * DPI, heightDots: 3 * DPI, cols: 2, name: '4" x 3"' },
-  '4x6': { widthIn: 4, heightIn: 6, widthDots: 4 * DPI, heightDots: 6 * DPI, cols: 1, name: '4" x 6"' },
+const SIZES = {
+  '2x1': { widthIn: 2, heightIn: 1, cols: 4, name: '2" x 1"' },
+  '3x2': { widthIn: 3, heightIn: 2, cols: 3, name: '3" x 2"' },
+  '4x2': { widthIn: 4, heightIn: 2, cols: 2, name: '4" x 2"' },
+  '4x3': { widthIn: 4, heightIn: 3, cols: 2, name: '4" x 3"' },
+  '4x6': { widthIn: 4, heightIn: 6, cols: 1, name: '4" x 6"' },
+}
+
+export const LABEL_DIMENSIONS = Object.fromEntries(
+  Object.entries(SIZES).map(([id, s]) => [
+    id,
+    { ...s, widthDots: s.widthIn * 203, heightDots: s.heightIn * 203 },
+  ])
+)
+
+export function getLabelDim(id, dpi = 203) {
+  const s = SIZES[id] || SIZES['3x2']
+  return { ...s, widthDots: s.widthIn * dpi, heightDots: s.heightIn * dpi }
 }
 
 export const PRINT_MODES = [
@@ -21,62 +32,73 @@ export const PRINT_MODES = [
 function buildLabelContent(product, opts = {}) {
   const includePrice = opts.includePrice !== false
   const includeSku = opts.includeSku !== false
+  const barcode = opts.barcode || product.barcode || product.sku || product.id || 'SIN-CODIGO'
+  const sku = opts.sku || product.sku || ''
   return {
     name: String(product.name || 'Producto').trim().slice(0, 40),
-    sku: includeSku ? String(product.sku || '').trim().slice(0, 20) : '',
+    sku: includeSku ? String(sku).trim().slice(0, 20) : '',
     price: includePrice ? Number(product.price || product.salePrice || 0) : 0,
-    barcode: String(product.barcode || product.sku || product.id || 'SIN-CODIGO').trim().slice(0, 30),
+    barcode: String(barcode).trim().slice(0, 48) || 'SIN-CODIGO',
   }
 }
 
-/* ================================================================
-   1. ZPL — Zebra Programming Language (con auto-fit)
-   ================================================================ */
+/* =================================================================
+   ZPL
+   ================================================================= */
 function zplFit(c, dim, includePrice, includeSku) {
-  let y = 20; const maxY = dim.heightDots - 8
-  let fontSize = dim.widthDots > 300 ? 35 : 28
-  let priceFs = dim.widthDots > 300 ? 45 : 36
-  let skuFs = Math.round(fontSize * 0.7)
-  let textH = fontSize + 15; let skuH = c.sku ? skuFs + 8 : 0; let priceH = c.price > 0 && includePrice ? priceFs + 12 : 0
-  let totalNeeded = textH + skuH + priceH + 40 + 12
-  let dropSku = false; let dropPrice = false
+  const margin = Math.round(dim.widthDots * 0.04)
+  const usableW = dim.widthDots - margin * 2
+  let y = margin
+  const maxY = dim.heightDots - margin
+
+  const bc = buildCode128Bars(c.barcode)
+  const barModule = 2
+  const bcWidthDots = bc.width * barModule
+  const bcX = Math.max(margin, margin + Math.round((usableW - bcWidthDots) / 2))
+
+  let nameFs = Math.min(Math.round(dim.heightDots * 0.13), 35)
+  let priceFs = Math.min(Math.round(dim.heightDots * 0.17), 48)
+  let skuFs = Math.round(nameFs * 0.65)
+  let nameH = nameFs + Math.round(dim.heightDots * 0.04)
+  let skuH = c.sku ? skuFs + Math.round(dim.heightDots * 0.025) : 0
+  let priceH = (c.price > 0 && includePrice) ? priceFs + Math.round(dim.heightDots * 0.04) : 0
+  let totalNeeded = nameH + skuH + priceH + Math.round(dim.heightDots * 0.22) + 8
+  let dropSku = false
+  let dropPrice = false
 
   if (totalNeeded > maxY) {
-    const scale = maxY / totalNeeded
-    fontSize = Math.max(14, Math.round(fontSize * scale))
-    priceFs = Math.max(18, Math.round(priceFs * scale))
-    skuFs = Math.round(fontSize * 0.7)
-    textH = fontSize + 12; skuH = c.sku ? skuFs + 6 : 0; priceH = c.price > 0 && includePrice ? priceFs + 10 : 0
-    totalNeeded = textH + skuH + priceH + 34 + 10
+    const s = maxY / totalNeeded
+    nameFs = Math.max(10, Math.round(nameFs * s))
+    priceFs = Math.max(14, Math.round(priceFs * s))
+    skuFs = Math.round(nameFs * 0.65)
+    nameH = nameFs + Math.round(dim.heightDots * 0.03)
+    skuH = c.sku ? skuFs + Math.round(dim.heightDots * 0.02) : 0
+    priceH = (c.price > 0 && includePrice) ? priceFs + Math.round(dim.heightDots * 0.03) : 0
+    totalNeeded = nameH + skuH + priceH + Math.round(dim.heightDots * 0.16) + 6
   }
+  if (totalNeeded > maxY) { dropSku = true; totalNeeded = nameH + priceH + Math.round(dim.heightDots * 0.16) + 6 }
+  if (totalNeeded > maxY && c.price > 0) { dropPrice = true; totalNeeded = nameH + Math.round(dim.heightDots * 0.16) + 6 }
+  if (totalNeeded > maxY) { nameFs = Math.max(8, nameFs - 2); nameH = nameFs + Math.round(dim.heightDots * 0.02); totalNeeded = nameH + Math.round(dim.heightDots * 0.12) + 4 }
 
-  if (totalNeeded > maxY) { dropSku = true; totalNeeded = textH + priceH + 34 + 10 }
-  if (totalNeeded > maxY && c.price > 0) { dropPrice = true; totalNeeded = textH + 34 + 10 }
-  if (totalNeeded > maxY) { fontSize = Math.max(10, fontSize - 4); textH = fontSize + 10; totalNeeded = textH + 30 + 8 }
-  if (totalNeeded > maxY) { fontSize = 8; textH = 16 }
-
-  const bcH = Math.max(20, Math.min(50, maxY - (y + textH + (dropSku ? 0 : skuH) + (dropPrice ? 0 : priceH) + 8)))
+  const bcH = Math.max(18, Math.min(Math.round(maxY * 0.4), maxY - y - nameH - (dropSku ? 0 : skuH) - (dropPrice ? 0 : priceH) - 6))
 
   const lines = []
   function z(t) { lines.push(t) }
   z('^XA'); z(`^LL${dim.heightDots}`); z(`^PW${dim.widthDots}`)
-  z(`^CF0,${fontSize}`); z(`^FO30,${y}^FD${c.name}^FS`); y += textH
-  if (c.sku && !dropSku) { z(`^CF0,${skuFs}`); z(`^FO30,${y}^FDSKU:${c.sku}^FS`); y += skuH }
+  z(`^CF0,${nameFs}`); z(`^FO${margin},${y}^FD${c.name}^FS`); y += nameH
+  if (c.sku && !dropSku) { z(`^CF0,${skuFs}`); z(`^FO${margin},${y}^FDSKU:${c.sku}^FS`); y += skuH }
   if (c.price > 0 && includePrice && !dropPrice) {
     z(`^CF0,${priceFs}`)
-    z(`^FO30,${y}^FDRD$${c.price.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}^FS`); y += priceH
+    z(`^FO${margin},${y}^FDRD$${c.price.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}^FS`); y += priceH
   }
-  const barModule = dim.widthDots > 160 ? 2 : 2
-  z(`^FO30,${y}^BY${barModule}^BCN,${bcH},Y,N,N`); z(`^FD${c.barcode}^FS`)
-  y += bcH + 3
-  if (maxY - y > 8) { z(`^CF0,${Math.max(6, skuFs)}`); z(`^FO30,${y}^FD${c.barcode}^FS`) }
-  z('^XZ')
+  z(`^FO${bcX},${y}^BY${barModule}^BCN,${bcH},Y,N,N`); z(`^FD${c.barcode}^FS`)
+  lines.push('^XZ')
   return lines.join('\n')
 }
 
-export function generateZPL(product, { labelSize = '3x2', includePrice = true, includeSku = true, quantity = 1 } = {}) {
-  const dim = LABEL_DIMENSIONS[labelSize] || LABEL_DIMENSIONS['3x2']
-  const c = buildLabelContent(product, { includePrice, includeSku })
+export function generateZPL(product, { labelSize = '3x2', includePrice = true, includeSku = true, quantity = 1, dpi = 203, barcode = '', sku = '' } = {}) {
+  const dim = getLabelDim(labelSize, dpi)
+  const c = buildLabelContent(product, { includePrice, includeSku, barcode, sku })
   let result = ''
   for (let i = 0; i < quantity; i++) result += zplFit(c, dim, includePrice, includeSku) + '\n'
   return result.trim()
@@ -91,17 +113,16 @@ export function downloadZplFile(zpl, filename = 'etiquetas.zpl') {
   URL.revokeObjectURL(url)
 }
 
-/* ================================================================
-   2. ESC/POS — Epson TM, Bixolon, Star, genericas termicas
-   ================================================================ */
-function escposText(str, maxChars) {
-  const encoder = new TextEncoder()
-  return encoder.encode((str || '').slice(0, maxChars || 48) + '\n')
+/* =================================================================
+   ESC/POS
+   ================================================================= */
+function encodeText(str, maxChars) {
+  return new TextEncoder().encode((str || '').slice(0, maxChars || 48) + '\n')
 }
 
-export function generateESCPOS(product, { labelSize = '3x2', includePrice = true, includeSku = true, quantity = 1 } = {}) {
-  const dim = LABEL_DIMENSIONS[labelSize] || LABEL_DIMENSIONS['3x2']
-  const c = buildLabelContent(product, { includePrice, includeSku })
+export function generateESCPOS(product, { labelSize = '3x2', includePrice = true, includeSku = true, quantity = 1, dpi = 203, barcode = '', sku = '' } = {}) {
+  const dim = getLabelDim(labelSize, dpi)
+  const c = buildLabelContent(product, { includePrice, includeSku, barcode, sku })
   const maxChars = dim.widthDots > 300 ? 32 : 20
   const encoder = new TextEncoder()
 
@@ -112,13 +133,14 @@ export function generateESCPOS(product, { labelSize = '3x2', includePrice = true
 
     cmd(0x1B, 0x40)
     cmd(0x1B, 0x61, 0x01)
-    cmd(0x1B, 0x21, 0x08); raw(escposText(c.name, maxChars))
-    if (c.sku) { cmd(0x1B, 0x21, 0x01); raw(escposText('SKU: ' + c.sku, maxChars)) }
-    if (c.price > 0) { cmd(0x1B, 0x21, 0x30); raw(escposText('RD$' + c.price.toFixed(2), maxChars)) }
-    const bd = encoder.encode(String(c.barcode || '') + '\n')
-    cmd(0x1D, 0x68, 0x60); cmd(0x1D, 0x77, 0x03)
-    cmd(0x1D, 0x6B, 0x49, (bd.length + 2) & 0xFF, ((bd.length + 2) >> 8) & 0xFF)
-    raw(new Uint8Array([0x7B, 0x42])); raw(bd); cmd(0x00)
+    cmd(0x1B, 0x21, 0x08); raw(encodeText(c.name, maxChars))
+    if (c.sku) { cmd(0x1B, 0x21, 0x01); raw(encodeText('SKU: ' + c.sku, maxChars)) }
+    if (c.price > 0) { cmd(0x1B, 0x21, 0x30); raw(encodeText('RD$' + c.price.toFixed(2), maxChars)) }
+    const barcodeBytes = encoder.encode(String(c.barcode || ''))
+    cmd(0x1D, 0x68, Math.min(0xFF, Math.round(dim.heightDots * 0.35)))
+    cmd(0x1D, 0x77, Math.min(5, Math.max(2, Math.round(barcodeBytes.length / 10))))
+    cmd(0x1D, 0x6B, 0x49, (barcodeBytes.length + 2) & 0xFF, ((barcodeBytes.length + 2) >> 8) & 0xFF)
+    raw(new Uint8Array([0x7B, 0x42])); raw(barcodeBytes); cmd(0x00)
     cmd(0x1D, 0x56, 0x00)
     return chunks
   }
@@ -148,35 +170,91 @@ export async function sendEscposToUsb(blob) {
   return device.productName || 'Impresora ESC/POS'
 }
 
-/* ================================================================
-   3. PNG — Render etiqueta a imagen 203DPI
-   ================================================================ */
-export function renderLabelToCanvas(product, { labelSize = '3x2', includePrice = true, includeSku = true, dpi = 203 } = {}) {
-  const dim = LABEL_DIMENSIONS[labelSize] || LABEL_DIMENSIONS['3x2']
-  const c = buildLabelContent(product, { includePrice, includeSku })
-  const pxW = Math.round(dim.widthIn * dpi / 4)
-  const pxH = Math.round(dim.heightIn * dpi / 4)
-  const margin = 8; const usableW = pxW - margin * 2; const maxY = pxH - margin
+/* =================================================================
+   PNG
+   ================================================================= */
+function crc32(data) {
+  let crc = 0xFFFFFFFF
+  for (let i = 0; i < data.length; i++) {
+    crc ^= data[i]
+    for (let j = 0; j < 8; j++) crc = (crc >>> 1) ^ (crc & 1 ? 0xEDB88320 : 0)
+  }
+  return (crc ^ 0xFFFFFFFF) >>> 0
+}
+
+async function canvasToPngBlob(canvas, dpi) {
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'))
+  if (!dpi || dpi <= 0) return blob
+  const buf = await blob.arrayBuffer()
+  const bytes = new Uint8Array(buf)
+  if (bytes[0] !== 0x89 || bytes[1] !== 0x50) return blob
+  const ppm = Math.round(dpi / 0.0254)
+  const pHYsData = new Uint8Array(9)
+  pHYsData[0] = (ppm >> 24) & 0xFF; pHYsData[1] = (ppm >> 16) & 0xFF
+  pHYsData[2] = (ppm >> 8) & 0xFF; pHYsData[3] = ppm & 0xFF
+  pHYsData[4] = (ppm >> 24) & 0xFF; pHYsData[5] = (ppm >> 16) & 0xFF
+  pHYsData[6] = (ppm >> 8) & 0xFF; pHYsData[7] = ppm & 0xFF
+  pHYsData[8] = 1
+  const type = new TextEncoder().encode('pHYs')
+  const chunkData = new Uint8Array(type.length + pHYsData.length)
+  chunkData.set(type, 0); chunkData.set(pHYsData, type.length)
+  const crc = crc32(chunkData)
+  const chunkLen = pHYsData.length
+  const header = new Uint8Array(8)
+  header[0] = (chunkLen >> 24) & 0xFF; header[1] = (chunkLen >> 16) & 0xFF
+  header[2] = (chunkLen >> 8) & 0xFF; header[3] = chunkLen & 0xFF
+  header[4] = (crc >> 24) & 0xFF; header[5] = (crc >> 16) & 0xFF
+  header[6] = (crc >> 8) & 0xFF; header[7] = crc & 0xFF
+  const sigLen = 8
+  const result = new Uint8Array(sigLen + header.length + chunkData.length + bytes.length - sigLen)
+  result.set(bytes.subarray(0, sigLen), 0)
+  result.set(header, sigLen)
+  result.set(chunkData, sigLen + header.length)
+  result.set(bytes.subarray(sigLen), sigLen + header.length + chunkData.length)
+  return new Blob([result], { type: 'image/png' })
+}
+
+export function renderLabelToCanvas(product, { labelSize = '3x2', includePrice = true, includeSku = true, dpi = 203, barcode = '', sku = '' } = {}) {
+  const dim = getLabelDim(labelSize, dpi)
+  const c = buildLabelContent(product, { includePrice, includeSku, barcode, sku })
+  const pxW = Math.round(dim.widthIn * dpi)
+  const pxH = Math.round(dim.heightIn * dpi)
+  const margin = Math.round(pxW * 0.03)
+  const usableW = pxW - margin * 2
+  const maxY = pxH - margin
 
   const canvas = document.createElement('canvas')
   canvas.width = pxW; canvas.height = pxH
   const ctx = canvas.getContext('2d')
   ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, pxW, pxH)
 
-  let nameFs = Math.max(9, pxW * 0.045); let skuFs = Math.max(7, pxW * 0.032); let priceFs = Math.max(11, pxW * 0.06)
-  let nameH = nameFs + 4; let skuH = c.sku ? skuFs + 3 : 0; let priceH = (c.price > 0 && includePrice) ? priceFs + 5 : 0
-  let barH = Math.max(16, pxH * 0.25); let totalH = nameH + skuH + priceH + barH + 8
-  let dropSku = false; let dropPrice = false
+  let nameFs = Math.max(10, pxH * 0.065)
+  let skuFs = Math.max(8, pxH * 0.045)
+  let priceFs = Math.max(14, pxH * 0.085)
+  let nameH = nameFs * 1.25
+  let skuH = c.sku ? skuFs * 1.1 : 0
+  let priceH = (c.price > 0 && includePrice) ? priceFs * 1.3 : 0
+  let barH = Math.max(20, pxH * 0.18)
+  let totalH = nameH + skuH + priceH + barH + margin * 2
+  let dropSku = false
+  let dropPrice = false
 
-  if (totalH > maxY) { const s = maxY / totalH; nameFs = Math.max(6, nameFs * s); skuFs = Math.max(5, skuFs * s); priceFs = Math.max(8, priceFs * s); nameH = nameFs + 3; skuH = c.sku ? skuFs + 2 : 0; priceH = (c.price > 0 && includePrice) ? priceFs + 3 : 0; barH = Math.max(10, barH * s); totalH = nameH + skuH + priceH + barH + 6 }
-  if (totalH > maxY && c.sku) { dropSku = true; skuH = 0; totalH = nameH + priceH + barH + 6 }
-  if (totalH > maxY && c.price > 0) { dropPrice = true; priceH = 0; totalH = nameH + barH + 6 }
-  if (totalH > maxY) { nameFs = Math.max(5, nameFs - 1); nameH = nameFs + 2; barH = Math.max(8, barH - 2); totalH = nameH + barH + 5 }
+  if (totalH > maxY) {
+    const s = maxY / totalH
+    nameFs = Math.max(7, nameFs * s); skuFs = Math.max(5, skuFs * s); priceFs = Math.max(10, priceFs * s)
+    nameH = nameFs * 1.2; skuH = c.sku ? skuFs * 1.05 : 0; priceH = (c.price > 0 && includePrice) ? priceFs * 1.2 : 0
+    barH = Math.max(14, barH * s); totalH = nameH + skuH + priceH + barH + margin * 1.5
+  }
+  if (totalH > maxY && c.sku) { dropSku = true; skuH = 0; totalH = nameH + priceH + barH + margin * 1.5 }
+  if (totalH > maxY && c.price > 0) { dropPrice = true; priceH = 0; totalH = nameH + barH + margin * 1.5 }
+  if (totalH > maxY) { nameFs = Math.max(6, nameFs - 1); nameH = nameFs * 1.1; barH = Math.max(10, barH - 2); totalH = nameH + barH + margin }
 
-  let y = margin + 2; ctx.textAlign = 'center'; ctx.fillStyle = '#111827'
+  let y = margin + nameFs * 0.3
+  ctx.textAlign = 'center'; ctx.fillStyle = '#111827'
 
   ctx.font = `bold ${nameFs}px sans-serif`
-  if (ctx.measureText(c.name).width > usableW) {
+  const nameWidth = ctx.measureText(c.name).width
+  if (nameWidth > usableW) {
     const words = c.name.split(' '); let line = ''
     for (const word of words) {
       const test = line ? line + ' ' + word : word
@@ -191,26 +269,32 @@ export function renderLabelToCanvas(product, { labelSize = '3x2', includePrice =
 
   const bc = buildCode128Bars(c.barcode)
   if (bc && bc.bars.length) {
-    const s = (usableW - 6) / bc.width; const barY = y
-    for (const bar of bc.bars) ctx.fillRect(margin + 3 + bar.x * s, barY, Math.max(bar.width * s, 0.4), barH)
-    y = barY + barH + 3
+    const s = (usableW - 4) / bc.width
+    const barY = y
+    for (const bar of bc.bars) ctx.fillRect(margin + 2 + bar.x * s, barY, Math.max(bar.width * s, 0.6), barH)
+    y = barY + barH + Math.round(margin * 0.5)
   }
 
-  if (maxY - y > 4) { ctx.font = `bold ${Math.min(pxW * 0.028, (maxY - y) * 0.7)}px monospace`; ctx.fillText(c.barcode, pxW / 2, y + (maxY - y) * 0.3) }
+  const codeTextH = maxY - y
+  if (codeTextH > 3) {
+    ctx.font = `bold ${Math.min(pxH * 0.028, codeTextH * 0.7)}px monospace`
+    ctx.fillText(c.barcode, pxW / 2, y + codeTextH * 0.35)
+  }
   return canvas
 }
 
-export function downloadLabelPng(canvas, filename = 'etiqueta.png') {
-  const url = canvas.toDataURL('image/png')
+export async function downloadLabelPng(canvas, filename = 'etiqueta.png', dpi = 203) {
+  const blob = await canvasToPngBlob(canvas, dpi)
+  const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url; a.download = filename
   document.body.appendChild(a); a.click(); document.body.removeChild(a)
   URL.revokeObjectURL(url)
 }
 
-/* ================================================================
-   4. WebUSB — ZPL directo
-   ================================================================ */
+/* =================================================================
+   WebUSB — ZPL directo
+   ================================================================= */
 export async function sendToUsbPrinter(zpl) {
   if (!navigator.usb) throw new Error('WebUSB no soportado en este navegador. Use Chrome/Edge o descargue el archivo ZPL.')
   const device = await navigator.usb.requestDevice({ filters: [] })

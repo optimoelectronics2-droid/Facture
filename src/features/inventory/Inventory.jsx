@@ -446,123 +446,102 @@ function ProductActions({ product, onView, onEdit, onAdjust, onLabel, onDelete, 
 
 const LABEL_SIZES = Object.entries(LABEL_DIMENSIONS).map(([id, dim]) => ({ id, name: dim.name, cols: dim.cols }))
 
+function getSelectedBarcode(product, source, manualCode) {
+  const value = source === 'manual'
+    ? manualCode
+    : source === 'barcode'
+      ? product.barcode
+      : source === 'sku'
+        ? product.sku
+        : product.id
+  return String(value || '').trim().slice(0, 48)
+}
+
+function getLabelQuantity(product, quantity, mode) {
+  const base = mode === 'stock' ? Number(product.stock || 0) : Number(quantity || 1)
+  return Math.max(1, Math.min(Math.round(base || 1), 120))
+}
+
+function sanitizeFilename(value) {
+  return String(value || 'producto').replace(/[\\/:*?"<>|]+/g, '-').slice(0, 60)
+}
+
 function BarcodeLabelPrinter({ product }) {
+  const company = useERPStore((state) => state.company)
   const [quantity, setQuantity] = useState(1)
+  const [quantityMode, setQuantityMode] = useState('manual')
   const [source, setSource] = useState(product.barcode ? 'barcode' : product.sku ? 'sku' : 'id')
+  const [manualCode, setManualCode] = useState('')
   const [labelSize, setLabelSize] = useState(LABEL_SIZES[0])
   const [showPrice, setShowPrice] = useState(true)
+  const [showSku, setShowSku] = useState(true)
   const [printMode, setPrintMode] = useState('browser')
   const [zplStatus, setZplStatus] = useState('')
-  const code = source === 'barcode' ? product.barcode : source === 'sku' ? product.sku : product.id
-  const labels = Array.from({ length: Math.max(1, Math.min(Number(quantity || 1), 120)) })
-
-  function handleBrowserPrint() {
-    const dim = LABEL_DIMENSIONS[labelSize.id] || LABEL_DIMENSIONS['3x2']
-    const mmW = dim.widthIn * 25.4
-    const mmH = dim.heightIn * 25.4
-    const pdf = new jsPDF({ unit: 'mm', format: [mmW, mmH], hotfixes: ['px_scaling'] })
-    const qty = Math.max(1, Math.min(Number(quantity || 1), 120))
-    const margin = 3
-    const usableW = mmW - margin * 2
-
-    for (let i = 0; i < qty; i++) {
-      if (i > 0) pdf.addPage([mmW, mmH])
-
-      let y = margin + 1
-      pdf.setFont('helvetica', 'bold')
-      pdf.setFontSize(7)
-      const name = String(product.name || 'Producto').trim().slice(0, 40)
-      pdf.text(name, mmW / 2, y, { align: 'center', maxWidth: usableW })
-      y += 5
-
-      if (product.sku) {
-        pdf.setFont('helvetica', 'normal')
-        pdf.setFontSize(5.5)
-        pdf.text(`SKU: ${product.sku}`, mmW / 2, y, { align: 'center' })
-        y += 4
-      }
-
-      if (showPrice && Number(product.price || 0) > 0) {
-        pdf.setFont('helvetica', 'bold')
-        pdf.setFontSize(9)
-        pdf.text(`RD$ ${Number(product.price).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`, mmW / 2, y, { align: 'center' })
-        y += 5.5
-      }
-
-      const code = source === 'barcode' ? product.barcode : source === 'sku' ? product.sku : product.id
-      const barcode = buildCode128Bars(code)
-      const barHeight = 10
-      const scale = (usableW - 4) / barcode.width
-      const barY = y
-      barcode.bars.forEach((bar) => {
-        pdf.rect(margin + 2 + bar.x * scale, barY, Math.max(bar.width * scale, 0.15), barHeight, 'F')
-      })
-      y += barHeight + 2.5
-
-      pdf.setFont('helvetica', 'bold')
-      pdf.setFontSize(4.5)
-      pdf.text(String(code || 'SIN-CODIGO').slice(0, 30), mmW / 2, y, { align: 'center' })
-    }
-
-    const blob = pdf.output('blob')
-    const url = URL.createObjectURL(blob)
-    const iframe = document.createElement('iframe')
-    iframe.style.display = 'none'
-    iframe.src = url
-    document.body.appendChild(iframe)
-    iframe.onload = () => {
-      setTimeout(() => {
-        iframe.contentWindow?.print()
-        setTimeout(() => { document.body.removeChild(iframe); URL.revokeObjectURL(url) }, 2000)
-      }, 500)
-    }
-  }
+  const code = getSelectedBarcode(product, source, manualCode)
+  const qty = getLabelQuantity(product, quantity, quantityMode)
+  const labels = Array.from({ length: qty })
 
   async function handlePrint() {
-    const qty = Math.max(1, Math.min(Number(quantity || 1), 120))
-    const opts = { labelSize: labelSize.id, includePrice: showPrice, quantity: qty }
-    const sku = product.sku || product.barcode || product.id
+    const selectedCode = getSelectedBarcode(product, source, manualCode)
+    if (!selectedCode) {
+      setZplStatus('Error: indique un codigo valido para imprimir.')
+      return
+    }
+    const qty = getLabelQuantity(product, quantity, quantityMode)
+    const opts = { labelSize: labelSize.id, includePrice: showPrice, includeSku: showSku, quantity: qty, barcode: selectedCode, sku: product.sku, dpi: company?.labelDpi || 203 }
+    const sku = sanitizeFilename(product.sku || selectedCode || product.id)
 
     try {
       if (printMode === 'browser') {
         const dim = LABEL_DIMENSIONS[labelSize.id] || LABEL_DIMENSIONS['3x2']
         const mmW = dim.widthIn * 25.4; const mmH = dim.heightIn * 25.4
         const pdf = new jsPDF({ unit: 'mm', format: [mmW, mmH], hotfixes: ['px_scaling'] })
-        const margin = 2; const usableW = mmW - margin * 2; const maxY = mmH - margin
+        const margin = mmW * 0.04; const usableW = mmW - margin * 2; const maxY = mmH - margin
 
         for (let i = 0; i < qty; i++) {
           if (i > 0) pdf.addPage([mmW, mmH])
-          let y = margin + 0.5
+          let y = margin
 
-          let nameFs = 7; let skuFs = 5.5; let priceFs = 9; let barH = 10; let textGap = 1.5
-          let nameH = 4.5; let skuH = product.sku ? 3.5 : 0; let priceH = (showPrice && Number(product.price || 0) > 0) ? 5 : 0
-          let totalH = nameH + skuH + priceH + barH + 4
-          if (totalH > maxY) { const s = maxY / totalH; nameFs = Math.max(4, Math.round(nameFs * s)); priceFs = Math.max(5, Math.round(priceFs * s)); skuFs = Math.max(3.5, Math.round(skuFs * s)); barH = Math.max(4, Math.round(barH * s)); nameH = nameFs * 0.65; skuH = product.sku ? skuFs * 0.65 : 0; priceH = priceFs * 0.6; totalH = nameH + skuH + priceH + barH + 3 }
-          if (totalH > maxY && product.sku) { skuH = 0; totalH = nameH + priceH + barH + 3 }
-          if (totalH > maxY) { priceH = 0; totalH = nameH + barH + 3 }
-          if (totalH > maxY) { nameFs = Math.max(3, nameFs - 1); nameH = nameFs * 0.6; barH = Math.max(3, barH - 2); totalH = nameH + barH + 3 }
+          let nameFs = Math.min(mmH * 0.28, 9)
+          let priceFs = Math.min(mmH * 0.38, 12)
+          let skuFs = nameFs * 0.7
+          let nameH = nameFs * 0.7; let skuH = showSku && product.sku ? skuFs * 0.6 : 0; let priceH = (showPrice && Number(product.price || 0) > 0) ? priceFs * 0.65 : 0
+          let barH = Math.min(mmH * 0.32, Math.max(6, Math.round(mmH * 0.25)))
+          let totalH = nameH + skuH + priceH + barH + margin * 0.5
+          let dropSku = false; let dropPrice = false
+
+          if (totalH > maxY) { const s = maxY / totalH; nameFs = Math.max(4, nameFs * s); priceFs = Math.max(5, priceFs * s); skuFs = nameFs * 0.7; barH = Math.max(3, barH * s); nameH = nameFs * 0.65; skuH = showSku && product.sku ? skuFs * 0.55 : 0; priceH = priceFs * 0.55; totalH = nameH + skuH + priceH + barH + margin * 0.35 }
+          if (totalH > maxY && showSku && product.sku) { dropSku = true; skuH = 0; totalH = nameH + priceH + barH + margin * 0.35 }
+          if (totalH > maxY) { dropPrice = true; priceH = 0; totalH = nameH + barH + margin * 0.35 }
+          if (totalH > maxY) { nameFs = Math.max(3, nameFs - 1); nameH = nameFs * 0.55; barH = Math.max(2, barH - 2); totalH = nameH + barH + margin * 0.25 }
 
           pdf.setFont('helvetica', 'bold'); pdf.setFontSize(nameFs)
-          pdf.text(String(product.name || 'Producto').trim().slice(0, 40), mmW / 2, y, { align: 'center', maxWidth: usableW }); y += nameH
+          const nameParts = String(product.name || 'Producto').trim().slice(0, 40).split(' ')
+          let nameLine = ''
+          for (const word of nameParts) {
+            const test = nameLine ? nameLine + ' ' + word : word
+            if (pdf.getTextWidth(test) > usableW && nameLine) { pdf.text(nameLine, mmW / 2, y, { align: 'center' }); nameLine = word; y += nameFs * 0.45 }
+            else { nameLine = test }
+          }
+          if (nameLine) { pdf.text(nameLine, mmW / 2, y, { align: 'center' }); y += nameH }
+          else { y += nameH * 0.5 }
 
-          if (skuH > 0 && product.sku) {
+          if (!dropSku && showSku && product.sku) {
             pdf.setFont('helvetica', 'normal'); pdf.setFontSize(skuFs)
             pdf.text('SKU: ' + product.sku, mmW / 2, y, { align: 'center' }); y += skuH
           }
-
-          if (priceH > 0 && showPrice && Number(product.price || 0) > 0) {
+          if (!dropPrice && showPrice && Number(product.price || 0) > 0) {
             pdf.setFont('helvetica', 'bold'); pdf.setFontSize(priceFs)
             pdf.text('RD$ ' + Number(product.price).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','), mmW / 2, y, { align: 'center' }); y += priceH
           }
 
-          const code = source === 'barcode' ? product.barcode : source === 'sku' ? product.sku : product.id
-          const bc = buildCode128Bars(code)
+          const bc = buildCode128Bars(selectedCode)
           const s = (usableW - 3) / (bc.width || 1)
           bc.bars.forEach((bar) => pdf.rect(margin + 1.5 + bar.x * s, y + 0.5, Math.max(bar.width * s, 0.1), barH, 'F'))
-          y += barH + 1.5
+          y += barH + mmH * 0.04
 
-          const codeTextH = Math.max(1.5, maxY - y)
-          if (codeTextH > 2) { pdf.setFont('helvetica', 'bold'); pdf.setFontSize(Math.min(4.5, codeTextH * 0.8)); pdf.text(String(code || 'SIN-CODIGO').slice(0, 30), mmW / 2, y + codeTextH * 0.3, { align: 'center' }) }
+          const codeRemain = maxY - y
+          if (codeRemain > 1.5) { pdf.setFont('helvetica', 'bold'); pdf.setFontSize(Math.min(mmH * 0.035, codeRemain * 0.7)); pdf.text(String(selectedCode).slice(0, 30), mmW / 2, y + codeRemain * 0.3, { align: 'center' }) }
         }
 
         const url = URL.createObjectURL(pdf.output('blob'))
@@ -600,7 +579,7 @@ function BarcodeLabelPrinter({ product }) {
 
       if (printMode === 'png') {
         const canvas = renderLabelToCanvas(product, opts)
-        downloadLabelPng(canvas, 'etiqueta-' + sku + '.png')
+        downloadLabelPng(canvas, 'etiqueta-' + sku + '.png', opts.dpi || 203)
         setZplStatus('Imagen PNG descargada'); setTimeout(() => setZplStatus(''), 3000)
       }
     } catch (error) {
@@ -617,14 +596,19 @@ function BarcodeLabelPrinter({ product }) {
   return (
     <div className="space-y-4">
       <div className="no-print grid gap-3 sm:grid-cols-2 md:grid-cols-[1fr_130px_100px_80px_auto]">
-        <label><span className="label-dark">Codigo a imprimir</span><select value={source} onChange={(event) => setSource(event.target.value)} className="input-dark"><option value="barcode">Codigo de barras</option><option value="sku">SKU</option><option value="id">ID interno</option></select></label>
+        <label><span className="label-dark">Codigo a imprimir</span><select value={source} onChange={(event) => setSource(event.target.value)} className="input-dark"><option value="barcode">Codigo de barras</option><option value="sku">SKU</option><option value="id">ID interno</option><option value="manual">Manual</option></select></label>
         <label><span className="label-dark">Tamaño</span><select value={labelSize.id} onChange={(event) => setLabelSize(LABEL_SIZES.find((s) => s.id === event.target.value) || LABEL_SIZES[0])} className="input-dark">{LABEL_SIZES.map((size) => <option key={size.id} value={size.id}>{size.name}</option>)}</select></label>
-        <label><span className="label-dark">Cantidad</span><input type="number" min="1" max="120" value={quantity} onChange={(event) => setQuantity(event.target.value)} className="input-dark" /></label>
+        <label><span className="label-dark">Cantidad</span><input type="number" min="1" max="120" value={quantityMode === 'stock' ? qty : quantity} onChange={(event) => setQuantity(event.target.value)} disabled={quantityMode === 'stock'} className="input-dark" /></label>
         <label className="flex items-center gap-2 pt-6 text-sm"><input type="checkbox" checked={showPrice} onChange={(e) => setShowPrice(e.target.checked)} /> Precio</label>
         <label><span className="label-dark">Metodo</span><select value={printMode} onChange={(event) => setPrintMode(event.target.value)} className="input-dark">{PRINT_MODES.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</select></label>
         <Button icon={Printer} variant="primary" className="self-end" onClick={handlePrint}>
           {printMode === 'browser' ? 'Imprimir' : printMode === 'usb' || printMode === 'escpos-usb' ? 'Enviar a USB' : 'Descargar'}
         </Button>
+      </div>
+      <div className="no-print grid gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_170px_150px]">
+        {source === 'manual' ? <label><span className="label-dark">Codigo manual</span><input value={manualCode} onChange={(event) => setManualCode(event.target.value)} className="input-dark" placeholder="Escanee o escriba el codigo" /></label> : <div className="rounded-lg border px-3 py-2 text-sm" style={{ borderColor: 'var(--line)', background: 'rgba(255,255,255,.035)' }}><span className="block text-xs font-bold uppercase text-white/40">Codigo real</span><b className="font-mono">{code || 'SIN-CODIGO'}</b></div>}
+        <label><span className="label-dark">Cantidad</span><select value={quantityMode} onChange={(event) => setQuantityMode(event.target.value)} className="input-dark"><option value="manual">Manual</option><option value="stock">Automatica por stock</option></select></label>
+        <label className="flex items-center gap-2 pt-6 text-sm"><input type="checkbox" checked={showSku} onChange={(e) => setShowSku(e.target.checked)} /> SKU</label>
       </div>
       {zplStatus && <p className="text-sm text-emerald-300">{zplStatus}</p>}
       <div className="mt-2 text-xs text-white/40">{PRINT_MODES.find((m) => m.id === printMode)?.desc}</div>
@@ -632,7 +616,7 @@ function BarcodeLabelPrinter({ product }) {
         {labels.map((_, index) => (
           <div key={index} className="label-item flex flex-col items-center justify-center rounded border border-slate-300 bg-white p-2 text-center text-slate-950 print:break-inside-avoid">
             <p className="w-full truncate text-xs font-black leading-tight">{product.name}</p>
-            {product.sku && <p className="w-full truncate text-[10px] font-semibold leading-tight">{product.sku}</p>}
+            {showSku && product.sku && <p className="w-full truncate text-[10px] font-semibold leading-tight">{product.sku}</p>}
             {showPrice && Number(product.price || 0) > 0 && (
               <p className="w-full truncate text-sm font-black text-slate-950">{currency.format(Number(product.price))}</p>
             )}
