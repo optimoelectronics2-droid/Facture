@@ -519,7 +519,7 @@ function BarcodeLabelPrinter({ product }) {
   }
 
   async function handlePrint() {
-    const qty = Number(quantity || 1)
+    const qty = Math.max(1, Math.min(Number(quantity || 1), 120))
     const opts = { labelSize: labelSize.id, includePrice: showPrice, quantity: qty }
     const sku = product.sku || product.barcode || product.id
 
@@ -528,24 +528,44 @@ function BarcodeLabelPrinter({ product }) {
         const dim = LABEL_DIMENSIONS[labelSize.id] || LABEL_DIMENSIONS['3x2']
         const mmW = dim.widthIn * 25.4; const mmH = dim.heightIn * 25.4
         const pdf = new jsPDF({ unit: 'mm', format: [mmW, mmH], hotfixes: ['px_scaling'] })
-        const margin = 3; const usableW = mmW - margin * 2
+        const margin = 2; const usableW = mmW - margin * 2; const maxY = mmH - margin
+
         for (let i = 0; i < qty; i++) {
           if (i > 0) pdf.addPage([mmW, mmH])
-          let y = margin + 1
-          pdf.setFont('helvetica', 'bold'); pdf.setFontSize(7)
-          pdf.text(String(product.name || 'Producto').trim().slice(0, 40), mmW / 2, y, { align: 'center', maxWidth: usableW }); y += 5
-          if (product.sku) { pdf.setFont('helvetica', 'normal'); pdf.setFontSize(5.5); pdf.text('SKU: ' + product.sku, mmW / 2, y, { align: 'center' }); y += 4 }
-          if (showPrice && Number(product.price || 0) > 0) {
-            pdf.setFont('helvetica', 'bold'); pdf.setFontSize(9)
-            pdf.text('RD$ ' + Number(product.price).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','), mmW / 2, y, { align: 'center' }); y += 5.5
+          let y = margin + 0.5
+
+          let nameFs = 7; let skuFs = 5.5; let priceFs = 9; let barH = 10; let textGap = 1.5
+          let nameH = 4.5; let skuH = product.sku ? 3.5 : 0; let priceH = (showPrice && Number(product.price || 0) > 0) ? 5 : 0
+          let totalH = nameH + skuH + priceH + barH + 4
+          if (totalH > maxY) { const s = maxY / totalH; nameFs = Math.max(4, Math.round(nameFs * s)); priceFs = Math.max(5, Math.round(priceFs * s)); skuFs = Math.max(3.5, Math.round(skuFs * s)); barH = Math.max(4, Math.round(barH * s)); nameH = nameFs * 0.65; skuH = product.sku ? skuFs * 0.65 : 0; priceH = priceFs * 0.6; totalH = nameH + skuH + priceH + barH + 3 }
+          if (totalH > maxY && product.sku) { skuH = 0; totalH = nameH + priceH + barH + 3 }
+          if (totalH > maxY) { priceH = 0; totalH = nameH + barH + 3 }
+          if (totalH > maxY) { nameFs = Math.max(3, nameFs - 1); nameH = nameFs * 0.6; barH = Math.max(3, barH - 2); totalH = nameH + barH + 3 }
+
+          pdf.setFont('helvetica', 'bold'); pdf.setFontSize(nameFs)
+          pdf.text(String(product.name || 'Producto').trim().slice(0, 40), mmW / 2, y, { align: 'center', maxWidth: usableW }); y += nameH
+
+          if (skuH > 0 && product.sku) {
+            pdf.setFont('helvetica', 'normal'); pdf.setFontSize(skuFs)
+            pdf.text('SKU: ' + product.sku, mmW / 2, y, { align: 'center' }); y += skuH
           }
-          const bc = buildCode128Bars(code); const barH = 10; const scale = (usableW - 4) / bc.width
-          bc.bars.forEach((bar) => pdf.rect(margin + 2 + bar.x * scale, y, Math.max(bar.width * scale, 0.15), barH, 'F'))
-          y += barH + 2.5
-          pdf.setFont('helvetica', 'bold'); pdf.setFontSize(4.5)
-          pdf.text(String(code || 'SIN-CODIGO').slice(0, 30), mmW / 2, y, { align: 'center' })
+
+          if (priceH > 0 && showPrice && Number(product.price || 0) > 0) {
+            pdf.setFont('helvetica', 'bold'); pdf.setFontSize(priceFs)
+            pdf.text('RD$ ' + Number(product.price).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','), mmW / 2, y, { align: 'center' }); y += priceH
+          }
+
+          const code = source === 'barcode' ? product.barcode : source === 'sku' ? product.sku : product.id
+          const bc = buildCode128Bars(code)
+          const s = (usableW - 3) / (bc.width || 1)
+          bc.bars.forEach((bar) => pdf.rect(margin + 1.5 + bar.x * s, y + 0.5, Math.max(bar.width * s, 0.1), barH, 'F'))
+          y += barH + 1.5
+
+          const codeTextH = Math.max(1.5, maxY - y)
+          if (codeTextH > 2) { pdf.setFont('helvetica', 'bold'); pdf.setFontSize(Math.min(4.5, codeTextH * 0.8)); pdf.text(String(code || 'SIN-CODIGO').slice(0, 30), mmW / 2, y + codeTextH * 0.3, { align: 'center' }) }
         }
-        const blob = pdf.output('blob'); const url = URL.createObjectURL(blob)
+
+        const url = URL.createObjectURL(pdf.output('blob'))
         const iframe = document.createElement('iframe'); iframe.style.display = 'none'; iframe.src = url
         document.body.appendChild(iframe)
         iframe.onload = () => { setTimeout(() => { iframe.contentWindow?.print(); setTimeout(() => { document.body.removeChild(iframe); URL.revokeObjectURL(url) }, 2000) }, 500) }

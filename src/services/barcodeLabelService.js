@@ -29,29 +29,56 @@ function buildLabelContent(product, opts = {}) {
 }
 
 /* ================================================================
-   1. ZPL — Zebra Programming Language
+   1. ZPL — Zebra Programming Language (con auto-fit)
    ================================================================ */
+function zplFit(c, dim, includePrice, includeSku) {
+  let y = 20; const maxY = dim.heightDots - 8
+  let fontSize = dim.widthDots > 300 ? 35 : 28
+  let priceFs = dim.widthDots > 300 ? 45 : 36
+  let skuFs = Math.round(fontSize * 0.7)
+  let textH = fontSize + 15; let skuH = c.sku ? skuFs + 8 : 0; let priceH = c.price > 0 && includePrice ? priceFs + 12 : 0
+  let totalNeeded = textH + skuH + priceH + 40 + 12
+  let dropSku = false; let dropPrice = false
+
+  if (totalNeeded > maxY) {
+    const scale = maxY / totalNeeded
+    fontSize = Math.max(14, Math.round(fontSize * scale))
+    priceFs = Math.max(18, Math.round(priceFs * scale))
+    skuFs = Math.round(fontSize * 0.7)
+    textH = fontSize + 12; skuH = c.sku ? skuFs + 6 : 0; priceH = c.price > 0 && includePrice ? priceFs + 10 : 0
+    totalNeeded = textH + skuH + priceH + 34 + 10
+  }
+
+  if (totalNeeded > maxY) { dropSku = true; totalNeeded = textH + priceH + 34 + 10 }
+  if (totalNeeded > maxY && c.price > 0) { dropPrice = true; totalNeeded = textH + 34 + 10 }
+  if (totalNeeded > maxY) { fontSize = Math.max(10, fontSize - 4); textH = fontSize + 10; totalNeeded = textH + 30 + 8 }
+  if (totalNeeded > maxY) { fontSize = 8; textH = 16 }
+
+  const bcH = Math.max(20, Math.min(50, maxY - (y + textH + (dropSku ? 0 : skuH) + (dropPrice ? 0 : priceH) + 8)))
+
+  const lines = []
+  function z(t) { lines.push(t) }
+  z('^XA'); z(`^LL${dim.heightDots}`); z(`^PW${dim.widthDots}`)
+  z(`^CF0,${fontSize}`); z(`^FO30,${y}^FD${c.name}^FS`); y += textH
+  if (c.sku && !dropSku) { z(`^CF0,${skuFs}`); z(`^FO30,${y}^FDSKU:${c.sku}^FS`); y += skuH }
+  if (c.price > 0 && includePrice && !dropPrice) {
+    z(`^CF0,${priceFs}`)
+    z(`^FO30,${y}^FDRD$${c.price.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}^FS`); y += priceH
+  }
+  const barModule = dim.widthDots > 160 ? 2 : 2
+  z(`^FO30,${y}^BY${barModule}^BCN,${bcH},Y,N,N`); z(`^FD${c.barcode}^FS`)
+  y += bcH + 3
+  if (maxY - y > 8) { z(`^CF0,${Math.max(6, skuFs)}`); z(`^FO30,${y}^FD${c.barcode}^FS`) }
+  z('^XZ')
+  return lines.join('\n')
+}
+
 export function generateZPL(product, { labelSize = '3x2', includePrice = true, includeSku = true, quantity = 1 } = {}) {
   const dim = LABEL_DIMENSIONS[labelSize] || LABEL_DIMENSIONS['3x2']
   const c = buildLabelContent(product, { includePrice, includeSku })
-  const fontSize = dim.widthDots > 300 ? 35 : 28
-  const priceFontSize = dim.widthDots > 300 ? 45 : 36
-  const barcodeHeight = dim.heightDots > 200 ? 60 : 40
-  let lines = []
-  function zpl(text) { lines.push(text) }
-  for (let i = 0; i < quantity; i++) {
-    let y = 30
-    zpl('^XA'); zpl(`^LL${dim.heightDots}`); zpl(`^PW${dim.widthDots}`)
-    zpl(`^CF0,${fontSize}`); zpl(`^FO30,${y}^FD${c.name}^FS`); y += fontSize + 15
-    if (c.sku) { zpl(`^CF0,${Math.round(fontSize * 0.7)}`); zpl(`^FO30,${y}^FDSKU: ${c.sku}^FS`); y += Math.round(fontSize * 0.7) + 8 }
-    if (c.price > 0) { zpl(`^CF0,${priceFontSize}`); zpl(`^FO30,${y}^FDRD$${c.price.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}^FS`); y += priceFontSize + 12 }
-    const barModule = dim.widthDots > 300 ? 3 : 2
-    const bcH = Math.min(barcodeHeight, Math.max(40, dim.heightDots - y - fontSize - 20))
-    zpl(`^FO30,${y}^BY${barModule}^BCN,${bcH},Y,N,N`); zpl(`^FD${c.barcode}^FS`)
-    if (dim.heightDots > 150) { y += bcH + 5; zpl(`^CF0,${Math.round(fontSize * 0.6)}`); zpl(`^FO30,${y}^FD${c.barcode}^FS`) }
-    zpl('^XZ')
-  }
-  return lines.join('\n')
+  let result = ''
+  for (let i = 0; i < quantity; i++) result += zplFit(c, dim, includePrice, includeSku) + '\n'
+  return result.trim()
 }
 
 export function downloadZplFile(zpl, filename = 'etiquetas.zpl') {
@@ -126,65 +153,49 @@ export async function sendEscposToUsb(blob) {
 export function renderLabelToCanvas(product, { labelSize = '3x2', includePrice = true, includeSku = true, dpi = 203 } = {}) {
   const dim = LABEL_DIMENSIONS[labelSize] || LABEL_DIMENSIONS['3x2']
   const c = buildLabelContent(product, { includePrice, includeSku })
-  const scale = dpi / 203
-  const pxW = Math.round(dim.widthIn * dpi / 4 * scale)
-  const pxH = Math.round(dim.heightIn * dpi / 4 * scale)
-  const margin = Math.round(10 * scale)
-  const usableW = pxW - margin * 2
+  const pxW = Math.round(dim.widthIn * dpi / 4)
+  const pxH = Math.round(dim.heightIn * dpi / 4)
+  const margin = 8; const usableW = pxW - margin * 2; const maxY = pxH - margin
 
   const canvas = document.createElement('canvas')
   canvas.width = pxW; canvas.height = pxH
   const ctx = canvas.getContext('2d')
-
   ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, pxW, pxH)
 
-  let y = margin + Math.round(5 * scale)
+  let nameFs = Math.max(9, pxW * 0.045); let skuFs = Math.max(7, pxW * 0.032); let priceFs = Math.max(11, pxW * 0.06)
+  let nameH = nameFs + 4; let skuH = c.sku ? skuFs + 3 : 0; let priceH = (c.price > 0 && includePrice) ? priceFs + 5 : 0
+  let barH = Math.max(16, pxH * 0.25); let totalH = nameH + skuH + priceH + barH + 8
+  let dropSku = false; let dropPrice = false
 
-  ctx.fillStyle = '#111827'
-  ctx.font = `bold ${Math.max(10, pxW * 0.045)}px sans-serif`
-  ctx.textAlign = 'center'
+  if (totalH > maxY) { const s = maxY / totalH; nameFs = Math.max(6, nameFs * s); skuFs = Math.max(5, skuFs * s); priceFs = Math.max(8, priceFs * s); nameH = nameFs + 3; skuH = c.sku ? skuFs + 2 : 0; priceH = (c.price > 0 && includePrice) ? priceFs + 3 : 0; barH = Math.max(10, barH * s); totalH = nameH + skuH + priceH + barH + 6 }
+  if (totalH > maxY && c.sku) { dropSku = true; skuH = 0; totalH = nameH + priceH + barH + 6 }
+  if (totalH > maxY && c.price > 0) { dropPrice = true; priceH = 0; totalH = nameH + barH + 6 }
+  if (totalH > maxY) { nameFs = Math.max(5, nameFs - 1); nameH = nameFs + 2; barH = Math.max(8, barH - 2); totalH = nameH + barH + 5 }
+
+  let y = margin + 2; ctx.textAlign = 'center'; ctx.fillStyle = '#111827'
+
+  ctx.font = `bold ${nameFs}px sans-serif`
   if (ctx.measureText(c.name).width > usableW) {
-    const words = c.name.split(' ')
-    let line = ''
+    const words = c.name.split(' '); let line = ''
     for (const word of words) {
       const test = line ? line + ' ' + word : word
-      if (ctx.measureText(test).width > usableW && line) { ctx.fillText(line, pxW / 2, y); line = word; y += Math.round(14 * scale) }
+      if (ctx.measureText(test).width > usableW && line) { ctx.fillText(line, pxW / 2, y); line = word; y += nameFs + 2 }
       else { line = test }
     }
-    if (line) { ctx.fillText(line, pxW / 2, y); y += Math.round(14 * scale) }
-  } else {
-    ctx.fillText(c.name, pxW / 2, y); y += Math.round(16 * scale)
-  }
+    if (line) { ctx.fillText(line, pxW / 2, y); y += nameFs + 2 }
+  } else { ctx.fillText(c.name, pxW / 2, y); y += nameH }
 
-  if (c.sku) {
-    ctx.font = `${Math.max(8, pxW * 0.035)}px sans-serif`
-    ctx.fillStyle = '#374151'
-    ctx.fillText('SKU: ' + c.sku, pxW / 2, y)
-    y += Math.round(12 * scale)
-  }
-
-  if (c.price > 0) {
-    ctx.font = `bold ${Math.max(14, pxW * 0.065)}px sans-serif`
-    ctx.fillStyle = '#111827'
-    ctx.fillText('RD$ ' + c.price.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','), pxW / 2, y)
-    y += Math.round(18 * scale)
-  }
+  if (c.sku && !dropSku) { ctx.font = `${skuFs}px sans-serif`; ctx.fillStyle = '#374151'; ctx.fillText('SKU: ' + c.sku, pxW / 2, y); y += skuH; ctx.fillStyle = '#111827' }
+  if (c.price > 0 && includePrice && !dropPrice) { ctx.font = `bold ${priceFs}px sans-serif`; ctx.fillText('RD$ ' + c.price.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','), pxW / 2, y); y += priceH }
 
   const bc = buildCode128Bars(c.barcode)
   if (bc && bc.bars.length) {
-    const barH = Math.max(20 * scale, (pxH - y - 16 * scale) * 0.6)
-    const s = (usableW - 8 * scale) / bc.width
-    const barY = y
-    ctx.fillStyle = '#111827'
-    for (const bar of bc.bars)
-      ctx.fillRect(margin + 4 * scale + bar.x * s, barY, Math.max(bar.width * s, 0.5), barH)
-    y = barY + barH + Math.round(4 * scale)
+    const s = (usableW - 6) / bc.width; const barY = y
+    for (const bar of bc.bars) ctx.fillRect(margin + 3 + bar.x * s, barY, Math.max(bar.width * s, 0.4), barH)
+    y = barY + barH + 3
   }
 
-  ctx.font = `bold ${Math.max(6, pxW * 0.03)}px monospace`
-  ctx.fillStyle = '#111827'
-  ctx.fillText(c.barcode, pxW / 2, y)
-
+  if (maxY - y > 4) { ctx.font = `bold ${Math.min(pxW * 0.028, (maxY - y) * 0.7)}px monospace`; ctx.fillText(c.barcode, pxW / 2, y + (maxY - y) * 0.3) }
   return canvas
 }
 
