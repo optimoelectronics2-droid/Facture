@@ -1,11 +1,12 @@
 import { buildCode128Bars } from '../lib/barcodeEngine'
 
+const DPI = 203
 export const LABEL_DIMENSIONS = {
-  '2x1': { widthIn: 2, heightIn: 1, widthDots: 203, heightDots: 102, cols: 4, name: '2" x 1"' },
-  '3x2': { widthIn: 3, heightIn: 2, widthDots: 305, heightDots: 203, cols: 3, name: '3" x 2"' },
-  '4x2': { widthIn: 4, heightIn: 2, widthDots: 406, heightDots: 203, cols: 2, name: '4" x 2"' },
-  '4x3': { widthIn: 4, heightIn: 3, widthDots: 406, heightDots: 305, cols: 2, name: '4" x 3"' },
-  '4x6': { widthIn: 4, heightIn: 6, widthDots: 406, heightDots: 610, cols: 1, name: '4" x 6"' },
+  '2x1': { widthIn: 2, heightIn: 1, widthDots: 2 * DPI, heightDots: 1 * DPI, cols: 4, name: '2" x 1"' },
+  '3x2': { widthIn: 3, heightIn: 2, widthDots: 3 * DPI, heightDots: 2 * DPI, cols: 3, name: '3" x 2"' },
+  '4x2': { widthIn: 4, heightIn: 2, widthDots: 4 * DPI, heightDots: 2 * DPI, cols: 2, name: '4" x 2"' },
+  '4x3': { widthIn: 4, heightIn: 3, widthDots: 4 * DPI, heightDots: 3 * DPI, cols: 2, name: '4" x 3"' },
+  '4x6': { widthIn: 4, heightIn: 6, widthDots: 4 * DPI, heightDots: 6 * DPI, cols: 1, name: '4" x 6"' },
 }
 
 export const PRINT_MODES = [
