@@ -1979,7 +1979,8 @@ export const useERPStore = create(
         ;(state.receivables || []).forEach((rec) => {
           const invoice = state.invoices.find((inv) => inv.id === rec.invoiceId)
           const invoiceStatus = invoice ? String(invoice.status || '').toLowerCase() : ''
-          if (!invoice || invalidStatuses.has(invoiceStatus)) { removed.receivables += 1 }
+          const invoiceFullyPaid = invoice && (Number(invoice.balanceDue || 0) <= 0 || invoiceStatus === 'paid')
+          if (!invoice || invalidStatuses.has(invoiceStatus) || invoiceFullyPaid) { removed.receivables += 1 }
           else { keptReceivableIds.add(rec.id) }
         })
         ;(state.payments || []).forEach((pay) => {
@@ -2007,7 +2008,10 @@ export const useERPStore = create(
           receivables: (current.receivables || []).filter((rec) => {
             const invoice = current.invoices.find((inv) => inv.id === rec.invoiceId)
             if (!invoice) return false
-            return !invalidStatuses.has(String(invoice.status || '').toLowerCase())
+            const invStatus = String(invoice.status || '').toLowerCase()
+            if (invalidStatuses.has(invStatus)) return false
+            if (Number(invoice.balanceDue || 0) <= 0 || invStatus === 'paid') return false
+            return true
           }),
           payments: (current.payments || []).filter((pay) => {
             const hasInvoice = pay.invoiceId && keptInvoiceIds.has(pay.invoiceId)
@@ -2024,6 +2028,22 @@ export const useERPStore = create(
         }))
         get().refreshReportStats()
         get().addAudit('data.cleanup', 'Sistema', null, removed)
+        try {
+          var persistKey = 'trifusion-erp-state-v2'
+          var raw = localStorage.getItem(persistKey)
+          if (raw) {
+            var parsed = JSON.parse(raw)
+            var fresh = get()
+            parsed.state.invoices = fresh.invoices
+            parsed.state.receivables = fresh.receivables
+            parsed.state.payments = fresh.payments
+            parsed.state.creditNotes = fresh.creditNotes
+            parsed.state.financialMovements = fresh.financialMovements || []
+            parsed.state.inventoryMovements = fresh.inventoryMovements
+            parsed.state.tenantData = fresh.tenantData
+            localStorage.setItem(persistKey, JSON.stringify(parsed))
+          }
+        } catch(e) { console.error('Force persist error:', e) }
         return { removed, message: `Limpieza completada. Se eliminaron ${Object.values(removed).reduce((a, b) => a + b, 0)} registros huerfanos.` }
       },
     }),
@@ -2078,6 +2098,7 @@ export const useERPStore = create(
     },
   ),
 )
+window.__STORE__ = useERPStore
 
 function migrateTenantState(state = {}) {
   const legacyCompany = normalizeCompany({ ...defaultCompany, ...(state.company || state.settings || {}) })

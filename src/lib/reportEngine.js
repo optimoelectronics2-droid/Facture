@@ -341,7 +341,7 @@ function buildAccountsReceivableSection(creditInvoices, allInvoices, refundsByIn
     const effectivePaid = Math.max(0, Number(inv.paidAmount || 0) - refunds)
     return pendingAmt(inv, effectivePaid)
   }
-  const validWithBalance = allInvoices.filter((inv) => classifyInvoice(inv) === 'valid' && effectivePending(inv) > 0)
+  const validWithBalance = creditInvoices.filter((inv) => classifyInvoice(inv) === 'valid' && effectivePending(inv) > 0)
 
   const overdue = validWithBalance.filter((inv) => {
     const due = inv.dueDate || inv.issuedAt || inv.createdAt

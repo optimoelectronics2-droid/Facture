@@ -272,6 +272,24 @@ export function SettingsPage() {
         <h3 className="font-display text-xl font-bold">Auditoria reciente</h3>
         <div className="mt-3 grid gap-2">{auditLogs.slice(0, 8).map((log) => <div key={log.id} className="rounded-lg bg-white/[0.035] p-3 text-sm"><p className="font-bold">{log.action} · {log.module}</p><p className="text-white/45">{log.user} · {log.date}</p></div>)}</div>
       </section>
+
+      <section className="panel rounded-lg p-5">
+        <div className="mb-4 flex items-center gap-3"><ShieldCheck className="text-red-300" /><div><h2 className="font-display text-2xl font-bold">Integridad de datos</h2><p className="text-sm text-white/45">Detecta y elimina registros huerfanos: facturas con estados invalidos, cuentas por cobrar sin factura, pagos huérfanos.</p></div></div>
+        <div className="flex flex-wrap gap-3">
+          <Button variant="secondary" icon={ShieldCheck} onClick={() => {
+            const report = useERPStore.getState().verifyDataIntegrity()
+            const total = report.invalidStatusInvoices + report.orphanReceivables + report.orphanPayments + report.orphanInventoryMovements + report.orphanFinancialMovements + report.orphanCreditNotes
+            if (total === 0) { toast.success('No se encontraron datos huerfanos. Todo en orden.') } else { toast.info(`Se encontraron ${total} registros con problemas.`) }
+            if (report.details.length > 0) alert(report.details.join('\n'))
+          }}>Verificar integridad</Button>
+          <Button variant="danger" icon={Trash2} onClick={() => {
+            if (!window.confirm('Eliminar todos los registros huerfanos del sistema? Esta accion no se puede deshacer.')) return
+            const result = useERPStore.getState().cleanupOrphanData()
+            toast.success(result.message)
+            if (result.removed && Object.values(result.removed).some((v) => v > 0)) alert(JSON.stringify(result.removed, null, 2))
+          }}>Limpiar datos huerfanos</Button>
+        </div>
+      </section>
     </div>
   )
 }

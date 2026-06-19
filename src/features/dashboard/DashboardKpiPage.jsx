@@ -368,7 +368,7 @@ function receivableReport({ receivables, invoices, filters, model, companyId }) 
       ['Abonos este mes', currency.format(model.totals.abonosMonth || 0)],
     ]),
     breakdowns: [
-      { title: 'Creditos activos detalle', columns: ['Factura', 'Cliente', 'Total', 'Financiado', 'Cobrado', 'Balance', 'Abonos'], rows: creditInvoiceRows(receivables) },
+      { title: 'Creditos activos detalle', columns: ['Factura', 'Cliente', 'Total', 'Financiado', 'Cobrado', 'Balance', 'Abonos'], rows: creditInvoiceRows(active) },
     ],
   }
 }
@@ -465,12 +465,13 @@ function taxReport(context) {
   return { ...report, title: 'Impuestos del mes', sheetName: 'Impuestos', fileName: 'impuestos-mes', columns: ['Fecha', 'Factura', 'Cliente', 'Subtotal', 'ITBIS', 'Total', 'Estado'], rows: report.rows.map((row) => ({ Fecha: row.Fecha, Factura: row.Factura, Cliente: row.Cliente, Subtotal: row.Subtotal, ITBIS: row.ITBIS, Total: row.Total, Estado: row.Estado })) }
 }
 
-function executiveSummary({ model, receivables }) {
+function executiveSummary({ model, receivables, invoices, companyId }) {
   const totals = model.totals || {}
-  const creditInv = receivables.filter((r) => r.balance > 0)
-  const totalCxC = creditInv.reduce((s, r) => s + Number(r.balance || 0), 0)
-  const totalCreditPaid = creditInv.reduce((s, r) => s + Number(r.paid || 0), 0)
-  const totalCreditFinanced = creditInv.reduce((s, r) => s + Number(r.total || 0), 0)
+  const validInvoices = invoices.filter((invoice) => isRealInvoice(invoice, companyId))
+  const activeReceivables = receivables.filter((r) => isActiveReceivable(r, validInvoices))
+  const totalCxC = activeReceivables.reduce((s, r) => s + Number(r.balance || 0), 0)
+  const totalCreditPaid = activeReceivables.reduce((s, r) => s + Number(r.paid || 0), 0)
+  const totalCreditFinanced = activeReceivables.reduce((s, r) => s + Number(r.total || 0), 0)
   const stats = [
     ['Ventas contado hoy', currency.format(totals.todayCashSales || 0)],
     ['Ventas credito hoy (emitido)', currency.format(totals.todayCreditSales || 0)],
@@ -501,7 +502,7 @@ function executiveSummary({ model, receivables }) {
     ['CxP pendiente', currency.format(totals.payablesBalance || 0)],
   ]
   const topProductsRows = (model.topProducts || []).slice(0, 8).map((product) => ({ Producto: product.name, SKU: product.sku || '', Cantidad: product.quantity, Ingresos: currency.format(product.revenue), Ganancia: currency.format(product.profit) }))
-  const creditDetail = creditInvoiceRows(receivables)
+  const creditDetail = creditInvoiceRows(activeReceivables)
   const lineData = { labels: (model.dailySeries || []).map((item) => item.label), datasets: [{ label: 'Ventas diarias', data: (model.dailySeries || []).map((item) => item.total), borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,.16)', tension: 0.35, fill: true }] }
   const doughnutData = model.paymentMethods?.length ? { labels: model.paymentMethods.map((item) => item.method), datasets: [{ data: model.paymentMethods.map((item) => item.net), backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6'] }] } : null
   return {

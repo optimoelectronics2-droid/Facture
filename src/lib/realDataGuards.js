@@ -55,7 +55,9 @@ export function isActiveReceivable(receivable, invoices = [], companyId) {
   if (status === 'paid' || status === 'cancelled' || status === 'cancelado') return false
   if (Number(receivable.balance || 0) <= 0) return false
   if (!receivable.invoiceId) return true
-  return invoices.some((invoice) => invoice.id === receivable.invoiceId && isReportableInvoice(invoice, companyId))
+  const invoice = invoices.find((inv) => inv.id === receivable.invoiceId)
+  if (!invoice) return false
+  return isReportableInvoice(invoice, companyId)
 }
 
 export function isActiveExpense(expense, companyId) {
