@@ -64,7 +64,7 @@ function cashCreditSplit(invoices) {
       creditTotal += total
       creditCount += 1
       creditPaid += paid
-      creditPending += Math.max(0, total - paid)
+      creditPending += inv.balanceDue != null ? Math.max(0, Number(inv.balanceDue)) : Math.max(0, total - paid)
     } else {
       cashTotal += total
       cashCount += 1

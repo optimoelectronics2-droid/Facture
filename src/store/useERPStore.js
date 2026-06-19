@@ -1349,6 +1349,11 @@ export const useERPStore = create(
           taxSequences: creditSequence ? state.taxSequences.map((sequence) => (sequence.id === 'B04' ? { ...sequence, next: toNumber(sequence.next) + 1 } : sequence)) : state.taxSequences,
           products: state.products.map((product) => restoreProductFromCreditNote(product, creditItems, note)),
           inventoryMovements: [...reversalMovements, ...state.inventoryMovements],
+          invoices: state.invoices.map((inv) => {
+            if (inv.id !== invoiceId) return inv
+            const newBalanceDue = Math.max(toNumber(inv.balanceDue || inv.totals?.total || 0) - totals.total, 0)
+            return { ...inv, balanceDue: newBalanceDue, paidAmount: toNumber(inv.paidAmount || 0), paymentStatus: newBalanceDue <= 0 ? 'paid' : inv.paymentStatus, status: newBalanceDue <= 0 ? 'paid' : inv.status }
+          }),
           receivables: state.receivables.map((receivable) => (
             receivable.invoiceId === invoiceId
               ? { ...receivable, balance: Math.max(toNumber(receivable.balance) - totals.total, 0), status: toNumber(receivable.balance) - totals.total <= 0 ? 'paid' : receivable.status, updatedAt: now() }

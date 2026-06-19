@@ -167,7 +167,7 @@ function buildExecutiveSummary(allInvoices, allNotes, historical, creditInvoices
   const facturasEmitidas = historical.documents
   const ticketPromedio = facturasEmitidas > 0 ? totalVentas / facturasEmitidas : 0
   const productosVendidos = allInvoices.reduce((s, inv) => s + (inv.items || []).reduce((s2, item) => s2 + Number(item.quantity || 0), 0), 0)
-  const creditosPendientes = creditInvoices.reduce((s, inv) => s + Math.max(0, Number(inv.balanceDue || inv.totals?.total || 0) - Number(inv.paidAmount || 0)), 0)
+  const creditosPendientes = creditInvoices.reduce((s, inv) => s + pendingAmt(inv), 0)
 
   return {
     section: 'Resumen Ejecutivo',
@@ -218,16 +218,16 @@ function buildCashSalesSection(cashInvoices, allInvoices, historical) {
 function buildCreditSalesSection(creditInvoices, historical) {
   const totalVendido = creditInvoices.reduce((s, inv) => s + Number(inv.totals?.total || 0), 0)
   const totalCobrado = creditInvoices.reduce((s, inv) => s + Number(inv.paidAmount || 0), 0)
-  const totalPendiente = creditInvoices.reduce((s, inv) => s + Math.max(0, Number(inv.balanceDue || inv.totals?.total || 0) - Number(inv.paidAmount || 0)), 0)
+  const totalPendiente = creditInvoices.reduce((s, inv) => s + pendingAmt(inv), 0)
   const clientes = new Set(creditInvoices.map((inv) => inv.customerId || inv.customerName)).size
   const facturas = creditInvoices.length
   const recuperacion = totalVendido > 0 ? (totalCobrado / totalVendido) * 100 : 0
   const now = new Date()
   const vencidas = creditInvoices.filter((inv) => {
     const due = inv.dueDate || inv.issuedAt || inv.createdAt
-    return due && new Date(due) < now && Number(inv.balanceDue || inv.totals?.total || 0) - Number(inv.paidAmount || 0) > 0
+    return due && new Date(due) < now && pendingAmt(inv) > 0
   })
-  const totalVencido = vencidas.reduce((s, inv) => s + Math.max(0, Number(inv.balanceDue || inv.totals?.total || 0) - Number(inv.paidAmount || 0)), 0)
+  const totalVencido = vencidas.reduce((s, inv) => s + pendingAmt(inv), 0)
 
   return {
     section: 'Ventas a Credito',
@@ -305,13 +305,14 @@ function buildProfitabilitySection(allInvoices, historical) {
 /* ================================================================
    SECCION 6 - CUENTAS POR COBRAR
    ================================================================ */
+function pendingAmt(inv) {
+  if (inv.balanceDue != null) return Math.max(0, Number(inv.balanceDue))
+  return Math.max(0, Number(inv.totals?.total || 0) - Number(inv.paidAmount || 0))
+}
+
 function buildAccountsReceivableSection(creditInvoices, allInvoices) {
   const now = new Date()
   const buckets = { '0-30': [], '31-60': [], '61-90': [], '90+': [] }
-  function pendingAmt(inv) {
-    if (inv.balanceDue != null) return Math.max(0, Number(inv.balanceDue))
-    return Math.max(0, Number(inv.totals?.total || 0) - Number(inv.paidAmount || 0))
-  }
   const validWithBalance = allInvoices.filter((inv) => classifyInvoice(inv) === 'valid' && pendingAmt(inv) > 0)
 
   const overdue = validWithBalance.filter((inv) => {
@@ -456,7 +457,7 @@ function buildCustomerAnalysisSection(customersMap, allInvoices) {
     .filter((inv) => (inv.payments || []).some((p) => isCreditMethod(p.method)) || isCreditMethod(inv.paymentMethod))
     .reduce((map, inv) => {
       const key = inv.customerId || inv.customerName || 'sin-cliente'
-      const pend = Math.max(0, Number(inv.balanceDue || inv.totals?.total || 0) - Number(inv.paidAmount || 0))
+      const pend = pendingAmt(inv)
       if (pend <= 0) return map
       const due = inv.dueDate || inv.issuedAt || inv.createdAt
       const daysOverdue = due ? Math.max(0, Math.floor((now - new Date(due)) / (1000 * 60 * 60 * 24))) : 0

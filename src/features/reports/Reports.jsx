@@ -49,7 +49,7 @@ export function Reports() {
       const hasCredit = payments.some((p) => String(p.method || '').toLowerCase().includes('credito'))
       const total = Number(inv.totals?.total || 0)
       const paid = Number(inv.paidAmount || 0)
-      if (hasCredit) { creditTotal += total; creditCount += 1; creditPaid += paid; creditPending += Math.max(0, total - paid) }
+      if (hasCredit) { creditTotal += total; creditCount += 1; creditPaid += paid; creditPending += inv.balanceDue != null ? Math.max(0, Number(inv.balanceDue)) : Math.max(0, total - paid) }
       else { cashTotal += total; cashCount += 1 }
     })
     return { cashTotal, creditTotal, cashCount, creditCount, creditPaid, creditPending, pctCash: (cashTotal + creditTotal) > 0 ? (cashTotal / (cashTotal + creditTotal)) * 100 : 0 }
@@ -63,7 +63,7 @@ export function Reports() {
       const total = Number(inv.totals?.total || 0); const paid = Number(inv.paidAmount || 0)
       return {
         number: inv.number || inv.ncf || '', customer: inv.customerName || '', date: inv.issuedAt || inv.createdAt || '',
-        total: currency.format(total), paid: currency.format(paid), pending: currency.format(Math.max(0, total - paid)),
+        total: currency.format(total), paid: currency.format(paid), pending: currency.format(inv.balanceDue != null ? Math.max(0, Number(inv.balanceDue)) : Math.max(0, total - paid)),
         pctPaid: total > 0 ? ((paid / total) * 100).toFixed(1) + '%' : '0%', status: inv.status || '',
       }
     })
