@@ -2091,7 +2091,7 @@ export const useERPStore = create(
           var totalPaid = allPayments.reduce(function(s, p) { return s + toNumber(p.amount) }, 0)
           var financed = toNumber(rec.financedAmount || rec.total || 0)
           var newBalance = moneyValue(Math.max(financed - totalPaid, 0))
-          var newPaid = moneyValue(Math.min(totalPaid, financed))
+          var newPaid = moneyValue(totalPaid)
           var newStatus = newBalance <= 0 ? 'paid' : totalPaid > 0 ? 'partial' : 'open'
           if (Math.abs(toNumber(rec.balance) - newBalance) > 0.01 || Math.abs(toNumber(rec.paid) - newPaid) > 0.01 || rec.status !== newStatus) {
             fixed.receivables++
