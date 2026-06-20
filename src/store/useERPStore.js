@@ -2202,6 +2202,16 @@ export const useERPStore = create(
           console.error('[Persist] Error de rehidratacion, limpiando storage:', error)
           try { localStorage.removeItem('trifusion-erp-state-v2') } catch {}
           window.location.reload()
+        } else if (state && state.invoices && state.verifyDataIntegrity) {
+          setTimeout(function() {
+            try {
+              var report = state.verifyDataIntegrity()
+              var total = (report.invalidStatusInvoices||0)+(report.orphanReceivables||0)+(report.orphanPayments||0)+(report.orphanInventoryMovements||0)+(report.orphanFinancialMovements||0)+(report.orphanCreditNotes||0)
+              if (total > 0) state.cleanupOrphanData()
+              state.recalculateFinancialFields()
+              state.refreshReportStats()
+            } catch(e) { console.error('Post-hydration cleanup error:', e) }
+          }, 100)
         }
       },
     },
