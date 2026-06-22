@@ -195,7 +195,7 @@ export function DashboardKpiPage() {
         </div>
       </section>
 
-      <section className="module-surface no-print p-4 sm:p-5">
+      <section className="no-print">
         <button type="button" onClick={() => setShowFilters((s) => !s)} className="flex w-full items-center justify-between gap-3 text-left">
           <span className="text-xs font-extrabold uppercase tracking-widest text-white/35">Filtros y periodo</span>
           <ChevronDown size={16} className={`text-white/40 transition ${showFilters ? 'rotate-180' : ''}`} />
@@ -220,29 +220,29 @@ export function DashboardKpiPage() {
       </section>
 
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        {report.stats.map((stat) => <div key={stat.label} className="panel rounded-xl p-4"><p className="text-[11px] font-extrabold uppercase tracking-wider text-white/38">{stat.label}</p><p className="mt-1 font-display text-3xl font-bold tracking-tight text-white">{stat.value}</p></div>)}
+        {report.stats.map((stat) => <div key={stat.label}><p className="text-[11px] font-extrabold uppercase tracking-wider text-white/38">{stat.label}</p><p className="mt-1 font-display text-3xl font-bold tracking-tight text-white">{stat.value}</p></div>)}
       </section>
 
       <section className="grid gap-5 xl:grid-cols-[.8fr_1.2fr]">
-        <div className="panel min-h-[240px] rounded-xl p-4 sm:min-h-[300px]">
+        <div className="min-h-[240px] sm:min-h-[300px]">
           <LineChart data={report.lineData} options={chartOptions} />
         </div>
-        <div className="panel min-h-[240px] rounded-xl p-4 sm:min-h-[300px]">
+        <div className="min-h-[240px] sm:min-h-[300px]">
           {report.doughnutData ? <Doughnut data={report.doughnutData} options={doughnutOptions} /> : <Bar data={report.barData} options={chartOptions} />}
         </div>
       </section>
 
-      <section className="module-surface p-4 sm:p-5">
-        <DataTable data={report.rows} columns={addActionButtons(columns, config.type, navigate)} initialPageSize={25} maxBodyHeight="62vh" emptyText="No hay registros con los filtros aplicados." searchPlaceholder="Buscar dentro de este modulo..." />
+      <section>
+        <DataTable data={report.rows} columns={addActionButtons(columns, config.type, navigate)} initialPageSize={25} emptyText="No hay registros con los filtros aplicados." searchPlaceholder="Buscar dentro de este modulo..." />
       </section>
 
       {report.breakdowns?.length ? (
         <section className="grid gap-4 xl:grid-cols-3">
           {report.breakdowns.map((section) => (
-            <div key={section.title} className="panel rounded-xl p-4">
+            <div key={section.title}>
               <h3 className="font-display text-lg font-bold">{section.title}</h3>
               <div className="mt-3">
-                <DataTable data={section.rows} columns={section.columns.map((column) => ({ header: column, accessorKey: column }))} initialPageSize={8} maxBodyHeight="320px" searchable={false} emptyText="Sin desglose." />
+                <DataTable data={section.rows} columns={section.columns.map((column) => ({ header: column, accessorKey: column }))} initialPageSize={8} searchable={false} emptyText="Sin desglose." />
               </div>
             </div>
           ))}

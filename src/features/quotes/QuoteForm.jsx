@@ -167,7 +167,7 @@ export function QuoteForm({ initialQuote, onDone }) {
       </aside>
 
       <main className="flex min-w-0 flex-1 flex-col gap-4">
-        <section className="module-surface p-4 sm:p-5">
+        <section>
           <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
             <div>
               <h2 className="font-display text-2xl font-bold">Cotizacion</h2>
@@ -237,7 +237,7 @@ export function QuoteForm({ initialQuote, onDone }) {
       </main>
 
       <aside className="w-[340px] shrink-0 space-y-4 overflow-y-auto">
-        <section className="panel rounded-lg p-5">
+        <section>
           <p className="text-xs font-extrabold uppercase text-blue-200/80">Resumen</p>
           <div className="mt-4 space-y-2">
             <SummaryLine label="Subtotal" value={totals.subtotal} />
@@ -254,7 +254,7 @@ export function QuoteForm({ initialQuote, onDone }) {
           </div>
         </section>
 
-        <section className="panel rounded-lg p-5">
+        <section>
           <p className="text-xs font-extrabold uppercase text-blue-200/80">Acciones</p>
           <div className="mt-4 grid gap-2">
             <Button variant="success" icon={Save} className="py-3 text-base" disabled={!form.items.some((item) => item.productId || item.name)} onClick={() => save('Borrador')}>Guardar</Button>

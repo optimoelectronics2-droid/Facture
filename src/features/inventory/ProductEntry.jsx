@@ -87,7 +87,7 @@ export function ProductEntry() {
 
   return (
     <div className="space-y-5">
-      <section className="panel rounded-lg p-5">
+      <section>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="font-display text-2xl font-bold">{editingId ? 'Editar entrada de mercancia' : 'Entrada de mercancia'}</h2>
           {editingId ? <Button variant="ghost" onClick={() => { setEditingId(''); setForm({ type: 'Nueva mercancia', supplierId: 'no-supplier', date: today(), supplierInvoice: '', reference: '', items: [blankItem()] }) }}>Cancelar edicion</Button> : null}
@@ -126,7 +126,7 @@ export function ProductEntry() {
           <div className="flex items-center gap-4"><p className="font-display text-2xl font-bold">{currency.format(total)}</p><Button icon={Save} onClick={save}>{editingId ? 'Actualizar entrada' : 'Guardar entrada'}</Button></div>
         </div>
       </section>
-      <section className="panel rounded-lg p-5">
+      <section>
         <h3 className="mb-4 font-display text-xl font-bold">Historial de entradas</h3>
         <DataTable data={entries} columns={[
           { header: 'Fecha', cell: ({ row }) => formatDate(row.original.date) },

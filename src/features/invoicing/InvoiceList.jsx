@@ -1,4 +1,5 @@
-import { useDeferredValue, useMemo, useState } from 'react'
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Columns3, Copy, Download, Eye, FileMinus2, History, Mail, MessageCircle, MoreHorizontal, PackageOpen, Pencil, Printer, RotateCcw, Search, SlidersHorizontal, Trash2, XCircle } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { Modal } from '../../components/ui/Modal'
@@ -37,14 +38,15 @@ export function InvoiceList() {
   const [creditItems, setCreditItems] = useState([])
   const [creditPayment, setCreditPayment] = useState({ method: 'Efectivo', amount: '' })
   const [deleteReason, setDeleteReason] = useState('')
-  const [quickFilter, setQuickFilter] = useState('all')
-  const [advancedOpen, setAdvancedOpen] = useState(true)
+  const [quickFilter, setQuickFilter] = useState('today')
+  const [advancedOpen, setAdvancedOpen] = useState(false)
   const [filters, setFilters] = useState(defaultAdvancedFilters)
   const deferredQuery = useDeferredValue(query)
   const sellers = useMemo(() => uniqueValues(invoices.map((invoice) => invoice.seller)), [invoices])
   const paymentMethods = useMemo(() => uniqueValues(invoices.flatMap((invoice) => (invoice.payments || []).map((payment) => payment.method).concat(invoice.paymentMethod || []))), [invoices])
   const searchResults = useMemo(() => {
     const queryText = normalize(deferredQuery)
+    const effectiveQuickFilter = queryText ? 'all' : quickFilter
     const matched = invoices.filter((invoice) => {
       const customer = customers.find((item) => item.id === invoice.customerId)
       const text = buildInvoiceSearchText(invoice, customer)
@@ -53,7 +55,7 @@ export function InvoiceList() {
         && (mode === 'all' || invoice.mode === mode)
         && (status === 'all' || invoice.status === status)
         && (ncfType === 'all' || invoice.ncfType === ncfType)
-        && matchesQuickFilter(invoice, quickFilter)
+        && matchesQuickFilter(invoice, effectiveQuickFilter)
         && matchesDateRange(invoice, filters.dateFrom, filters.dateTo)
         && matchesNumberMin(total, filters.minTotal)
         && matchesNumberMax(total, filters.maxTotal)
@@ -85,7 +87,7 @@ export function InvoiceList() {
     setMode('all')
     setStatus('all')
     setNcfType('all')
-    setQuickFilter('all')
+    setQuickFilter('today')
     setFilters(defaultAdvancedFilters)
   }
 
@@ -181,75 +183,81 @@ export function InvoiceList() {
   ]
 
   return (
-    <div className="space-y-5">
-      <section className="module-surface p-5 sm:p-6">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+    <div className="space-y-0">
+      <div className="module-header invoice-list-header">
+        <div className="invoice-title-row">
           <div>
-            <p className="text-xs font-extrabold uppercase" style={{ color: 'var(--color-nav)' }}>Facturacion</p>
-            <h2 className="font-display text-3xl font-bold">Lista de facturas</h2>
-            <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>Emitidas, borradores, creditos y anulaciones sin eliminar historial fiscal.</p>
+            <p className="module-header-eyebrow">Facturacion</p>
+            <h2 className="module-header-title">Lista de facturas</h2>
+            <p className="module-header-desc">Emitidas, creditos y anulaciones con historial fiscal.</p>
           </div>
         </div>
-        <div className="mt-4 grid gap-3 md:grid-cols-4">
-          <Total label="Facturas mostradas" value={`${filtered.length} / ${totalMatched}`} />
-          <Total label="Total con ITBIS" value={currency.format(buckets.taxed.total)} />
-          <Total label="Total sin ITBIS" value={currency.format(buckets.noTax.total)} />
-          <Total label="ITBIS total" value={currency.format(buckets.taxed.itbis + buckets.mixed.itbis)} />
+        <div className="invoice-summary-strip">
+          <div className="summary-chip"><span className="summary-chip-label">Facturas mostradas</span><span className="summary-chip-value">{filtered.length} / {totalMatched}</span></div>
+          <div className="summary-chip"><span className="summary-chip-label">Total con ITBIS</span><span className="summary-chip-value">{currency.format(buckets.taxed.total)}</span></div>
+          <div className="summary-chip"><span className="summary-chip-label">Total sin ITBIS</span><span className="summary-chip-value">{currency.format(buckets.noTax.total)}</span></div>
+          <div className="summary-chip"><span className="summary-chip-label">ITBIS total</span><span className="summary-chip-value">{currency.format(buckets.taxed.itbis + buckets.mixed.itbis)}</span></div>
         </div>
-      </section>
+      </div>
 
-      <section className="module-surface p-4 sm:p-5">
-        <div className="space-y-3">
-          <div className="flex items-center gap-2 rounded-lg border px-3 py-3" style={{ borderColor: 'var(--line)', background: 'var(--bg-input)' }}>
-            <Search size={16} style={{ color: 'var(--text-tertiary)' }} />
-            <input id="invoice-list-query" name="invoice-list-query" value={query} onChange={(e) => setQuery(e.target.value)} className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-white/35" placeholder="Buscar factura, cliente, NCF, RNC, telefono, producto, vendedor, pago, fecha o total" />
+      <div className="invoice-filter-console">
+        <div className="invoice-search-row">
+          <div className="module-search-bar invoice-search-bar min-w-0">
+            <Search size={18} style={{ color: 'var(--blue-bright)' }} />
+            <input id="invoice-list-query" name="invoice-list-query" value={query} onChange={(e) => setQuery(e.target.value)} className="min-w-0" placeholder="Buscar factura, cliente, NCF, RNC, telefono, producto, vendedor, pago, fecha o total" />
           </div>
-          <div className="flex flex-wrap gap-2">
-            {quickFilters.map((filter) => (
-              <button key={filter.id} type="button" onClick={() => setQuickFilter(filter.id)} className={`rounded-lg border px-3 py-2 text-xs font-bold transition ${quickFilter === filter.id ? 'border-blue-400 bg-blue-500/15 text-blue-100' : 'border-white/10 bg-white/[0.035] text-white/55 hover:bg-white/[0.07]'}`}>{filter.label}</button>
-            ))}
-          </div>
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg p-2" style={{ border: '1px solid var(--line)', background: 'rgba(255,255,255,.025)' }}>
-            <button type="button" onClick={() => setAdvancedOpen((value) => !value)} className="inline-flex min-h-10 items-center gap-2 rounded-lg border px-3 text-xs font-bold transition" style={{ borderColor: 'var(--line)', background: 'rgba(255,255,255,.035)', color: 'rgba(255,255,255,.7)' }}>
-              <SlidersHorizontal size={15} />
-              Busqueda avanzada
+          <div className="invoice-filter-count"><span>{totalMatched}</span><small>resultados</small></div>
+        </div>
+        <div className="invoice-module-filter-row">
+          {quickFilters.map((filter) => (
+            <button
+              key={filter.id}
+              type="button"
+              onClick={() => setQuickFilter(filter.id)}
+              className={`invoice-module-filter filter-${filter.tone} ${quickFilter === filter.id ? 'active' : ''}`}
+            >
+              <span>{filter.label}</span>
             </button>
-            <div className="flex flex-wrap items-center gap-2 text-xs font-bold" style={{ color: 'rgba(255,255,255,.45)' }}>
-              <span>{totalMatched} encontrada(s)</span>
-              {hiddenByLimit ? <span>{hiddenByLimit} oculta(s) por limite</span> : null}
-              <button type="button" onClick={resetFilters} className="rounded-lg border px-3 py-2 transition hover:bg-white/[0.07]" style={{ borderColor: 'var(--line)', color: 'rgba(255,255,255,.6)' }}>Limpiar</button>
-            </div>
-          </div>
-          {advancedOpen ? (
-            <div className="grid gap-3 rounded-lg p-3" style={{ border: '1px solid var(--line)', background: 'rgba(0,0,0,.15)' }}>
-              <div className="toolbar-grid">
-                <label><span className="label-dark">Desde</span><input id="invoice-list-date-from" name="invoice-list-date-from" type="date" value={filters.dateFrom} onChange={(e) => setFilter('dateFrom', e.target.value)} className="input-dark" /></label>
-                <label><span className="label-dark">Hasta</span><input id="invoice-list-date-to" name="invoice-list-date-to" type="date" value={filters.dateTo} onChange={(e) => setFilter('dateTo', e.target.value)} className="input-dark" /></label>
-                <label><span className="label-dark">Monto minimo</span><input id="invoice-list-min-total" name="invoice-list-min-total" type="number" min="0" value={filters.minTotal} onChange={(e) => setFilter('minTotal', e.target.value)} className="input-dark" placeholder="0.00" /></label>
-                <label><span className="label-dark">Monto maximo</span><input id="invoice-list-max-total" name="invoice-list-max-total" type="number" min="0" value={filters.maxTotal} onChange={(e) => setFilter('maxTotal', e.target.value)} className="input-dark" placeholder="Sin limite" /></label>
-              </div>
-              <div className="toolbar-grid">
-                <label><span className="label-dark">Vendedor</span><select id="invoice-list-seller" name="invoice-list-seller" value={filters.seller} onChange={(e) => setFilter('seller', e.target.value)} className="input-dark"><option value="all">Todos</option>{sellers.map((seller) => <option key={seller} value={seller}>{seller}</option>)}</select></label>
-                <label><span className="label-dark">Metodo de pago</span><select id="invoice-list-payment-method" name="invoice-list-payment-method" value={filters.paymentMethod} onChange={(e) => setFilter('paymentMethod', e.target.value)} className="input-dark"><option value="all">Todos</option>{paymentMethods.map((payment) => <option key={payment} value={payment}>{payment}</option>)}</select></label>
-                <label><span className="label-dark">Producto / SKU / modelo</span><input id="invoice-list-product-query" name="invoice-list-product-query" value={filters.productQuery} onChange={(e) => setFilter('productQuery', e.target.value)} className="input-dark" placeholder="Ej. iPhone, SKU, laptop" /></label>
-                <label><span className="label-dark">Serial / IMEI</span><input id="invoice-list-serial-query" name="invoice-list-serial-query" value={filters.serialQuery} onChange={(e) => setFilter('serialQuery', e.target.value)} className="input-dark" placeholder="Serial, IMEI o parte" /></label>
-              </div>
-              <div className="toolbar-grid">
-                <label><span className="label-dark">Mostrar maximo</span><select id="invoice-list-result-limit" name="invoice-list-result-limit" value={filters.resultLimit} onChange={(e) => setFilter('resultLimit', e.target.value)} className="input-dark"><option value="5">5 registros</option><option value="10">10 registros</option><option value="25">25 registros</option><option value="50">50 registros</option><option value="100">100 registros</option><option value="all">Todos</option></select></label>
-                <label><span className="label-dark">Orden</span><select id="invoice-list-sort-by" name="invoice-list-sort-by" value={filters.sortBy} onChange={(e) => setFilter('sortBy', e.target.value)} className="input-dark"><option value="newest">Mas recientes</option><option value="oldest">Mas antiguas</option><option value="total_desc">Mayor monto</option><option value="total_asc">Menor monto</option><option value="customer">Cliente A-Z</option><option value="number">Numero / NCF</option></select></label>
-              </div>
-            </div>
-          ) : null}
-          <div className="toolbar-grid">
-            <select id="invoice-list-mode" name="invoice-list-mode" value={mode} onChange={(e) => setMode(e.target.value)} className="input-dark"><option value="all">Modo: todos</option><option value={invoiceModes.TAXED}>Con ITBIS</option><option value={invoiceModes.NO_TAX}>Sin ITBIS</option><option value={invoiceModes.MIXED}>Mixta</option></select>
-            <select id="invoice-list-status" name="invoice-list-status" value={status} onChange={(e) => setStatus(e.target.value)} className="input-dark"><option value="all">Estado: todos</option><option value="draft">Borrador</option><option value="paid">Pagada</option><option value="partial">Parcialmente pagada</option><option value="credit">Fiada / pendiente</option><option value="voided">Anulada</option></select>
-            <select id="invoice-list-ncf-type" name="invoice-list-ncf-type" value={ncfType} onChange={(e) => setNcfType(e.target.value)} className="input-dark"><option value="all">NCF todos</option><option>B01</option><option>B02</option><option>B14</option><option>B15</option><option>E31</option><option>E32</option><option>NO_FISCAL</option></select>
+          ))}
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <button type="button" onClick={() => setAdvancedOpen((value) => !value)} className={`quick-filter-btn ${advancedOpen ? 'active' : ''}`}>
+            <SlidersHorizontal size={15} />
+            Busqueda avanzada
+          </button>
+          <div className="flex flex-wrap items-center gap-2 text-xs font-bold" style={{ color: 'var(--text-tertiary)' }}>
+            {hiddenByLimit ? <span>{hiddenByLimit} oculta(s) por limite</span> : null}
+            <button type="button" onClick={resetFilters} className="quick-filter-btn">Limpiar</button>
           </div>
         </div>
-        <div className="mt-4">
-          <PremiumInvoiceTable data={filtered} columns={columns} />
+        {advancedOpen ? (
+          <div className="advanced-filters-panel">
+            <div className="toolbar-grid">
+              <label><span className="label-dark">Desde</span><input id="invoice-list-date-from" name="invoice-list-date-from" type="date" value={filters.dateFrom} onChange={(e) => setFilter('dateFrom', e.target.value)} className="input-dark" /></label>
+              <label><span className="label-dark">Hasta</span><input id="invoice-list-date-to" name="invoice-list-date-to" type="date" value={filters.dateTo} onChange={(e) => setFilter('dateTo', e.target.value)} className="input-dark" /></label>
+              <label><span className="label-dark">Monto minimo</span><input id="invoice-list-min-total" name="invoice-list-min-total" type="number" min="0" value={filters.minTotal} onChange={(e) => setFilter('minTotal', e.target.value)} className="input-dark" placeholder="0.00" /></label>
+              <label><span className="label-dark">Monto maximo</span><input id="invoice-list-max-total" name="invoice-list-max-total" type="number" min="0" value={filters.maxTotal} onChange={(e) => setFilter('maxTotal', e.target.value)} className="input-dark" placeholder="Sin limite" /></label>
+            </div>
+            <div className="toolbar-grid">
+              <label><span className="label-dark">Vendedor</span><select id="invoice-list-seller" name="invoice-list-seller" value={filters.seller} onChange={(e) => setFilter('seller', e.target.value)} className="input-dark"><option value="all">Todos</option>{sellers.map((seller) => <option key={seller} value={seller}>{seller}</option>)}</select></label>
+              <label><span className="label-dark">Metodo de pago</span><select id="invoice-list-payment-method" name="invoice-list-payment-method" value={filters.paymentMethod} onChange={(e) => setFilter('paymentMethod', e.target.value)} className="input-dark"><option value="all">Todos</option>{paymentMethods.map((payment) => <option key={payment} value={payment}>{payment}</option>)}</select></label>
+              <label><span className="label-dark">Producto / SKU / modelo</span><input id="invoice-list-product-query" name="invoice-list-product-query" value={filters.productQuery} onChange={(e) => setFilter('productQuery', e.target.value)} className="input-dark" placeholder="Ej. iPhone, SKU, laptop" /></label>
+              <label><span className="label-dark">Serial / IMEI</span><input id="invoice-list-serial-query" name="invoice-list-serial-query" value={filters.serialQuery} onChange={(e) => setFilter('serialQuery', e.target.value)} className="input-dark" placeholder="Serial, IMEI o parte" /></label>
+            </div>
+            <div className="toolbar-grid">
+              <label><span className="label-dark">Mostrar maximo</span><select id="invoice-list-result-limit" name="invoice-list-result-limit" value={filters.resultLimit} onChange={(e) => setFilter('resultLimit', e.target.value)} className="input-dark"><option value="5">5 registros</option><option value="10">10 registros</option><option value="25">25 registros</option><option value="50">50 registros</option><option value="100">100 registros</option><option value="all">Todos</option></select></label>
+              <label><span className="label-dark">Orden</span><select id="invoice-list-sort-by" name="invoice-list-sort-by" value={filters.sortBy} onChange={(e) => setFilter('sortBy', e.target.value)} className="input-dark"><option value="newest">Mas recientes</option><option value="oldest">Mas antiguas</option><option value="total_desc">Mayor monto</option><option value="total_asc">Menor monto</option><option value="customer">Cliente A-Z</option><option value="number">Numero / NCF</option></select></label>
+            </div>
+          </div>
+        ) : null}
+        <div className="invoice-select-strip">
+          <select id="invoice-list-mode" name="invoice-list-mode" value={mode} onChange={(e) => setMode(e.target.value)} className="input-dark"><option value="all">Modo: todos</option><option value={invoiceModes.TAXED}>Con ITBIS</option><option value={invoiceModes.NO_TAX}>Sin ITBIS</option><option value={invoiceModes.MIXED}>Mixta</option></select>
+          <select id="invoice-list-status" name="invoice-list-status" value={status} onChange={(e) => setStatus(e.target.value)} className="input-dark"><option value="all">Estado: todos</option><option value="draft">Borrador</option><option value="paid">Pagada</option><option value="partial">Parcialmente pagada</option><option value="credit">Fiada / pendiente</option><option value="voided">Anulada</option></select>
+          <select id="invoice-list-ncf-type" name="invoice-list-ncf-type" value={ncfType} onChange={(e) => setNcfType(e.target.value)} className="input-dark"><option value="all">NCF todos</option><option>B01</option><option>B02</option><option>B14</option><option>B15</option><option>E31</option><option>E32</option><option>NO_FISCAL</option></select>
         </div>
-      </section>
+      </div>
+      <div className="section-divider" />
+      <PremiumInvoiceTable data={filtered} columns={columns} />
 
       <Modal open={Boolean(selected)} onClose={() => { setSelected(null); setPendingPrint(''); setPendingDownload('') }} title="Detalle de factura" size="xl">
         {selected ? <InvoicePreview invoice={selected} company={company} customer={customers.find((customer) => customer.id === selected.customerId)} format="letter" autoPrint={pendingPrint === selected.id} onAutoPrintDone={() => setPendingPrint('')} autoDownload={pendingDownload === selected.id} onAutoDownloadDone={() => setPendingDownload('')} /> : null}
@@ -349,6 +357,45 @@ export function InvoiceList() {
 
 function ActionDropdown({ invoice, customers, company, onView, onDownload, onEdit, onDuplicate, onPrint, onWhatsApp, onEmail, onProducts, onHistory, onCreditNote, onDelete, onVoid }) {
   const [open, setOpen] = useState(false)
+  const btnRef = useRef(null)
+  const menuRef = useRef(null)
+  const [pos, setPos] = useState({ top: 0, left: 0 })
+  const close = useCallback(() => setOpen(false), [])
+  useEffect(() => {
+    if (!open) return
+    const btn = btnRef.current
+    if (!btn) return
+    const approxH = 500
+    const gap = 6
+    const update = () => {
+      const r = btn.getBoundingClientRect()
+      const fromRight = 208
+      const left = Math.max(8, Math.min(r.right - fromRight, window.innerWidth - fromRight - 8))
+      const down = r.bottom + gap + approxH <= window.innerHeight
+      const up = r.top - gap - approxH >= 0
+      let top
+      if (down) {
+        top = r.bottom + gap
+      } else if (up) {
+        top = r.top - gap - approxH
+      } else {
+        top = window.innerHeight - r.bottom >= r.top ? r.bottom + gap : r.top - gap - approxH
+      }
+      top = Math.max(8, Math.min(top, window.innerHeight - approxH - 8))
+      setPos({ top, left })
+    }
+    update()
+    const outClick = (e) => {
+      if (btn.contains(e.target) || (menuRef.current && menuRef.current.contains(e.target))) return
+      close()
+    }
+    window.addEventListener('scroll', update, true)
+    document.addEventListener('mousedown', outClick)
+    return () => {
+      window.removeEventListener('scroll', update, true)
+      document.removeEventListener('mousedown', outClick)
+    }
+  }, [open, close])
   const groups = [
     { label: 'Visualizar', actions: [
       { icon: Eye, label: 'Ver detalle', onClick: onView },
@@ -372,12 +419,12 @@ function ActionDropdown({ invoice, customers, company, onView, onDownload, onEdi
     ]},
   ]
   return (
-    <div className="relative">
-      <button type="button" onClick={() => setOpen((v) => !v)} className="rounded-md border p-2 transition" style={{ borderColor: 'var(--line)', background: 'rgba(255,255,255,.035)', color: 'rgba(255,255,255,.65)' }}>
+    <div>
+      <button ref={btnRef} type="button" onClick={() => setOpen((v) => !v)} className="rounded-md border p-2 transition" style={{ borderColor: 'var(--line)', background: 'rgba(255,255,255,.035)', color: 'rgba(255,255,255,.65)' }}>
         <MoreHorizontal size={15} />
       </button>
-      {open ? (
-        <div className="absolute right-0 top-full z-[9999] mt-1 min-w-52 rounded-lg border p-1 shadow-2xl" style={{ borderColor: 'var(--line)', background: 'var(--bg-surface)' }} onMouseLeave={() => setOpen(false)}>
+      {open ? createPortal(
+        <div ref={menuRef} className="fixed z-[99999] min-w-52 max-h-[80vh] overflow-y-auto rounded-lg border p-1 shadow-2xl" style={{ top: pos.top, left: pos.left, borderColor: 'var(--line)', background: 'var(--bg-surface)' }}>
           {groups.map((group, gi) => (
             <div key={group.label}>
               {gi > 0 ? <div className="my-1 border-t" style={{ borderColor: 'var(--line)' }} /> : null}
@@ -387,7 +434,7 @@ function ActionDropdown({ invoice, customers, company, onView, onDownload, onEdi
                   key={action.label}
                   type="button"
                   disabled={action.disabled}
-                  onClick={() => { action.onClick(); setOpen(false) }}
+                  onClick={() => { action.onClick(); close() }}
                   className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm transition hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-30"
                   style={{ color: action.label === 'Anular' || action.label === 'Eliminar borrador' ? 'rgb(252, 165, 165)' : 'rgba(255,255,255,.78)' }}
                 >
@@ -396,14 +443,15 @@ function ActionDropdown({ invoice, customers, company, onView, onDownload, onEdi
               ))}
             </div>
           ))}
-        </div>
+        </div>,
+        document.body
       ) : null}
     </div>
   )
 }
 
 function Total({ label, value }) {
-  return <div className="rounded-lg p-3" style={{ border: '1px solid var(--line)', background: 'rgba(255,255,255,.035)' }}><p className="text-xs font-bold uppercase" style={{ color: 'rgba(255,255,255,.4)' }}>{label}</p><p className="mt-1 font-display text-xl font-bold">{value}</p></div>
+  return <div className="summary-chip"><span className="summary-chip-label">{label}</span><span className="summary-chip-value">{value}</span></div>
 }
 
 function PremiumInvoiceTable({ data, columns }) {
@@ -432,9 +480,9 @@ function PremiumInvoiceTable({ data, columns }) {
   }
 
   return (
-    <div className="overflow-hidden rounded-lg border" style={{ borderColor: 'var(--line)', background: 'rgba(16,17,25,.7)' }}>
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b p-3" style={{ borderColor: 'var(--line)', background: 'rgba(255,255,255,.035)' }}>
-        <div className="text-xs font-bold uppercase" style={{ color: 'rgba(255,255,255,.45)' }}>{sorted.length} resultado(s) organizados</div>
+    <div className="data-table-shell">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border" style={{ borderColor: 'var(--line)', background: 'var(--bg-surface)', padding: '12px 14px' }}>
+        <div className="text-xs font-bold uppercase" style={{ color: 'var(--text-tertiary)' }}>{sorted.length} resultado(s) organizados</div>
         <div className="relative flex flex-wrap gap-2">
           <select id="invoice-list-page-size" name="invoice-list-page-size" value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1) }} className="input-dark max-w-36">
             <option value="10">10 por pagina</option>
@@ -442,7 +490,7 @@ function PremiumInvoiceTable({ data, columns }) {
             <option value="50">50 por pagina</option>
             <option value="100">100 por pagina</option>
           </select>
-          <button type="button" onClick={() => setColumnsOpen((value) => !value)} className="inline-flex min-h-10 items-center gap-2 rounded-lg border px-3 text-xs font-bold transition" style={{ borderColor: 'var(--line)', background: 'rgba(255,255,255,.04)', color: 'rgba(255,255,255,.7)' }}><Columns3 size={15} /> Columnas</button>
+          <button type="button" onClick={() => setColumnsOpen((value) => !value)} className="rounded-md px-3 py-1.5 text-xs font-bold transition" style={{ borderColor: 'var(--line)', background: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--line)' }}><Columns3 size={15} /> Columnas</button>
           {columnsOpen ? (
             <div className="absolute right-0 top-12 z-[9999] grid min-w-56 gap-1 rounded-lg border p-2 shadow-2xl" style={{ borderColor: 'var(--line)', background: 'var(--bg-surface)' }}>
               {columns.map((column) => (
@@ -455,40 +503,40 @@ function PremiumInvoiceTable({ data, columns }) {
           ) : null}
         </div>
       </div>
-      <div className="premium-scroll overflow-auto" style={{ maxHeight: '68vh' }}>
+      <div className="premium-scroll overflow-x-auto overflow-y-visible">
         <table className="min-w-[1180px] w-full text-left text-sm">
-          <thead className="sticky top-0 z-10 text-xs uppercase shadow-lg" style={{ background: 'var(--bg-table-header)', color: 'rgba(255,255,255,.48)', boxShadow: '0 4px 12px rgba(0,0,0,.2)' }}>
+          <thead className="text-xs uppercase" style={{ background: 'var(--bg-table-header)', color: 'var(--text-secondary)', borderBottom: '2px solid var(--line-strong)' }}>
             <tr>
               {visibleColumns.map((column) => (
-                <th key={column.header} className="px-4 py-3">
-                  <button type="button" onClick={() => sortBy(column.header)} className="inline-flex items-center gap-1 font-bold hover:text-white">
+                <th key={column.header} className="px-4 py-3 font-bold">
+                  <button type="button" onClick={() => sortBy(column.header)} className="inline-flex items-center gap-1 hover:text-white">
                     {column.header}
-                    <span style={{ color: 'rgba(255,255,255,.3)' }}>{sort.id === column.header ? (sort.dir === 'asc' ? '↑' : '↓') : '↕'}</span>
+                    <span style={{ color: 'var(--text-tertiary)' }}>{sort.id === column.header ? (sort.dir === 'asc' ? '↑' : '↓') : '↕'}</span>
                   </button>
                 </th>
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y" style={{ borderColor: 'var(--line)' }}>
+          <tbody>
             {pageRows.length ? pageRows.map((invoice) => (
-              <tr key={invoice.id} className="transition hover:bg-blue-500/[0.08]" style={{ background: 'rgba(255,255,255,.018)' }}>
+              <tr key={invoice.id} className="transition">
                 {visibleColumns.map((column) => (
-                  <td key={`${invoice.id}-${column.header}`} className="px-4 py-3" style={{ color: 'rgba(255,255,255,.78)' }}>
+                  <td key={`${invoice.id}-${column.header}`} className="px-4 py-4" style={{ color: 'var(--text-primary)' }}>
                     {column.cell ? column.cell({ row: { original: invoice } }) : invoice[column.accessorKey] || '-'}
                   </td>
                 ))}
               </tr>
             )) : (
-              <tr><td colSpan={visibleColumns.length} className="px-4 py-10 text-center text-sm" style={{ color: 'rgba(255,255,255,.45)' }}>No hay facturas para estos filtros.</td></tr>
+              <tr><td colSpan={visibleColumns.length} className="px-4 py-10 text-center text-sm" style={{ color: 'var(--text-secondary)' }}>No hay facturas para estos filtros.</td></tr>
             )}
           </tbody>
         </table>
       </div>
-      <div className="flex flex-wrap items-center justify-between gap-2 border-t p-3 text-sm" style={{ borderColor: 'var(--line)', background: 'rgba(255,255,255,.025)', color: 'rgba(255,255,255,.55)' }}>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border px-4 py-3 text-sm" style={{ borderColor: 'var(--line)', background: 'var(--bg-surface)', color: 'var(--text-secondary)' }}>
         <span>Pagina {safePage} de {totalPages}</span>
         <div className="flex gap-2">
-          <button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} className="rounded-lg border px-3 py-2 font-bold hover:bg-white/[0.07]" style={{ borderColor: 'var(--line)' }}>Anterior</button>
-          <button type="button" onClick={() => setPage((value) => Math.min(totalPages, value + 1))} className="rounded-lg border px-3 py-2 font-bold hover:bg-white/[0.07]" style={{ borderColor: 'var(--line)' }}>Siguiente</button>
+          <button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} className="rounded-md border px-2.5 py-1.5 font-bold transition" style={{ borderColor: 'var(--line)', background: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}>Anterior</button>
+          <button type="button" onClick={() => setPage((value) => Math.min(totalPages, value + 1))} className="rounded-md border px-2.5 py-1.5 font-bold transition" style={{ borderColor: 'var(--line)', background: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}>Siguiente</button>
         </div>
       </div>
     </div>
@@ -636,18 +684,18 @@ const defaultAdvancedFilters = {
 }
 
 const quickFilters = [
-  { id: 'all', label: 'Todos' },
-  { id: 'today', label: 'Hoy' },
-  { id: 'week', label: 'Esta semana' },
-  { id: 'month', label: 'Este mes' },
-  { id: 'credit', label: 'Credito' },
-  { id: 'fiado', label: 'Fiado' },
-  { id: 'partial', label: 'Parcial' },
-  { id: 'paid', label: 'Pagadas' },
-  { id: 'overdue', label: 'Vencidas' },
-  { id: 'taxed', label: 'Con ITBIS' },
-  { id: 'no_tax', label: 'Sin ITBIS' },
-  { id: 'voided', label: 'Anuladas' },
+  { id: 'all', label: 'Todos', group: 'range', tone: 'neutral' },
+  { id: 'today', label: 'Hoy', group: 'range', tone: 'blue' },
+  { id: 'week', label: 'Esta semana', group: 'range', tone: 'cyan' },
+  { id: 'month', label: 'Este mes', group: 'range', tone: 'violet' },
+  { id: 'credit', label: 'Credito', group: 'status', tone: 'amber' },
+  { id: 'fiado', label: 'Fiado', group: 'status', tone: 'orange' },
+  { id: 'partial', label: 'Parcial', group: 'status', tone: 'pink' },
+  { id: 'paid', label: 'Pagadas', group: 'status', tone: 'green' },
+  { id: 'overdue', label: 'Vencidas', group: 'status', tone: 'red' },
+  { id: 'taxed', label: 'Con ITBIS', group: 'fiscal', tone: 'blue' },
+  { id: 'no_tax', label: 'Sin ITBIS', group: 'fiscal', tone: 'green' },
+  { id: 'voided', label: 'Anuladas', group: 'fiscal', tone: 'red' },
 ]
 
 function buildInvoiceSearchText(invoice, customer) {

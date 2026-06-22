@@ -11,8 +11,13 @@ import { useDebouncedValue } from '../../hooks/useDebouncedValue'
 import { useERPStore } from '../../store/useERPStore'
 import { downloadCsv } from '../../lib/csvExport'
 import { currency, formatDate } from '../../lib/formatters'
-import { buildCode128Bars, getCode128Layout, sanitizeCode128Value } from '../../lib/barcodeEngine'
+import { buildCode128Bars, buildEAN13Bars, buildUPABars, barcodeToSvg, sanitizeCode128Value, getCode128Layout as getBarcodeLayout } from '../../lib/barcodeEngine'
 import { generateZPL, downloadZplFile, sendToUsbPrinter, generateESCPOS, downloadEscposFile, sendEscposToUsb, renderLabelToCanvas, downloadLabelPng, LABEL_DIMENSIONS, PRINT_MODES } from '../../services/barcodeLabelService'
+import { LABEL_SIZES as NEW_LABEL_SIZES, getLabelSize as newGetLabelSize, validateBarcodeReadability, createEmptyDesign, createLabelElement, generateBarcodeBars } from '../../lib/labelEngine'
+import { renderDesignToPdf, renderDesignToZpl, renderDesignToEpl, renderDesignToTspl, renderDesignToCpcl, renderDesignToEscpos, renderDesign, downloadOutput } from '../../lib/labelOutput'
+import LabelDesigner from '../../components/label/LabelDesigner'
+import LabelPrinterProfileDialog from '../../components/label/LabelPrinterProfileDialog'
+import LabelMassPrintDialog from '../../components/label/LabelMassPrintDialog'
 import jsPDF from 'jspdf'
 
 const emptyProduct = {
@@ -196,27 +201,25 @@ export function Inventory() {
   ]
 
   return (
-    <div className="space-y-5">
-      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+    <div className="space-y-0">
+      <section className="module-header grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <InventoryMetric title="Productos activos" value={activeProducts.length} detail={`${deletedProducts.length} eliminados recuperables`} />
         <InventoryMetric title="Valor inventario" value={currency.format(inventoryValue)} detail="Costo x stock disponible" />
         <InventoryMetric title="Stock bajo" value={lowStock.length} detail="Productos que requieren reposicion" tone="danger" />
         <InventoryMetric title="Serializados" value={activeProducts.filter((item) => item.requiresSerial).length} detail="IMEI / serial controlado" />
       </section>
 
-      <section className="module-surface p-4 sm:p-5">
-        <div className="mb-5 flex flex-col gap-4 2xl:flex-row 2xl:items-end 2xl:justify-between">
-          <div className="min-w-0">
-            <p className="flex items-center gap-2 text-xs font-extrabold uppercase" style={{ color: 'rgb(191,219,254)' }}><Boxes size={14} /> Inventario avanzado</p>
-            <h2 className="mt-1 font-display text-2xl font-bold">Productos, stock, seriales e IMEI</h2>
-            <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>Crear, editar, eliminar, restaurar y auditar productos sin romper ventas ni movimientos existentes.</p>
-          </div>
+      <section className="section-card">
+        <div className="min-w-0">
+          <p className="module-header-eyebrow"><Boxes size={14} /> Inventario avanzado</p>
+          <h2 className="module-header-title">Productos, stock, seriales e IMEI</h2>
+          <p className="module-header-desc">Crear, editar, eliminar, restaurar y auditar productos sin romper ventas ni movimientos existentes.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex min-w-[220px] flex-1 items-center gap-2 rounded-lg border px-3 py-2" style={{ borderColor: 'var(--line)', background: 'var(--bg-input)' }}>
+          <label className="module-search-bar">
             <Search size={16} style={{ color: 'var(--text-tertiary)' }} />
-            <input id="inv-query" name="inv-query" value={filters.query} onChange={(e) => setFilters((s) => ({ ...s, query: e.target.value }))} placeholder="Nombre, SKU, codigo, IMEI, serial, marca" className="min-w-0 flex-1 bg-transparent text-sm outline-none" />
-          </div>
+            <input id="inv-query" name="inv-query" value={filters.query} onChange={(e) => setFilters((s) => ({ ...s, query: e.target.value }))} placeholder="Nombre, SKU, codigo, IMEI, serial, marca" className="min-w-0 flex-1" />
+          </label>
           <select id="inv-category" name="inv-category" value={filters.category} onChange={(e) => setFilters((s) => ({ ...s, category: e.target.value }))} className="input-dark max-w-44"><option value="all">Todas las categorias</option>{categories.map((c) => <option key={c}>{c}</option>)}</select>
           <select id="inv-brand" name="inv-brand" value={filters.brand} onChange={(e) => setFilters((s) => ({ ...s, brand: e.target.value }))} className="input-dark max-w-40"><option value="all">Todas las marcas</option>{brands.map((b) => <option key={b}>{b}</option>)}</select>
           <select id="inv-tax" name="inv-tax" value={filters.tax} onChange={(e) => setFilters((s) => ({ ...s, tax: e.target.value }))} className="input-dark max-w-32"><option value="all">ITBIS todos</option><option value="taxed">Con ITBIS</option><option value="no_tax">Sin ITBIS</option><option value="exempt">Exento</option></select>
@@ -228,21 +231,20 @@ export function Inventory() {
           <Button icon={Plus} onClick={() => setEditing({ ...emptyProduct })}>Nuevo producto</Button>
         </div>
         <InventoryCategoryStrip rows={categorySummary} />
-        <div className="mt-4 flex flex-col gap-2 rounded-lg border px-3 py-2 text-xs font-bold sm:flex-row sm:items-center sm:justify-between" style={{ borderColor: 'var(--line)', background: 'rgba(255,255,255,.035)', color: 'rgba(255,255,255,.55)' }}>
+        <div className="mt-4 flex flex-col gap-2 rounded-lg border text-xs font-bold sm:flex-row sm:items-center sm:justify-between" style={{ borderColor: 'var(--line)', color: 'var(--text-secondary)', background: 'var(--bg-table-header)', padding: '12px 16px' }}>
           <span>{sortedInventory.length} producto(s) encontrados · mostrando {visibleInventory.length} · pagina {safeInventoryPage} de {inventoryTotalPages}</span>
           <div className="flex flex-wrap items-center gap-2">
             <select id="inv-page-size" name="inv-page-size" value={inventoryPageSize} onChange={(event) => setInventoryPageSize(Number(event.target.value))} className="input-dark max-w-36 py-1.5 text-xs">
               {[12, 20, 36, 60].map((option) => <option key={option} value={option}>{option} por pagina</option>)}
             </select>
-            <Button icon={ChevronLeft} variant="ghost" className="px-2 py-1.5 text-xs" disabled={safeInventoryPage <= 1} onClick={() => setInventoryPage((page) => Math.max(1, page - 1))}>Anterior</Button>
+            <Button icon={ChevronLeft} variant="ghost" className="px-2 py-1.5 text-xs" disabled={safeInventoryPage <= 1} onClick={() => setInventoryPage((page) => Math.max(1, page - 1))} style={{ background: 'var(--bg-elevated)', border: '1px solid var(--line)' }}>Anterior</Button>
             <input id="inv-page" name="inv-page" type="number" min={1} max={inventoryTotalPages} value={safeInventoryPage} onChange={(event) => { const value = Number(event.target.value); if (value >= 1 && value <= inventoryTotalPages) setInventoryPage(value) }} className="input-dark w-16 py-1 text-center text-xs" />
-            <Button icon={ChevronRight} variant="ghost" className="px-2 py-1.5 text-xs" disabled={safeInventoryPage >= inventoryTotalPages} onClick={() => setInventoryPage((page) => Math.min(inventoryTotalPages, page + 1))}>Siguiente</Button>
+            <Button icon={ChevronRight} variant="ghost" className="px-2 py-1.5 text-xs" disabled={safeInventoryPage >= inventoryTotalPages} onClick={() => setInventoryPage((page) => Math.min(inventoryTotalPages, page + 1))} style={{ background: 'var(--bg-elevated)', border: '1px solid var(--line)' }}>Siguiente</Button>
           </div>
         </div>
-        <div className="mt-4">
-          <DataTable data={visibleInventory} columns={columns} emptyText="No hay productos con esos filtros." initialPageSize={inventoryPageSize} pageSizeOptions={[inventoryPageSize]} maxBodyHeight="64vh" searchable={false} />
-        </div>
       </section>
+      <div className="section-divider" />
+      <DataTable data={visibleInventory} columns={columns} emptyText="No hay productos con esos filtros." initialPageSize={inventoryPageSize} pageSizeOptions={[inventoryPageSize]} searchable={false} />
 
       <Modal open={Boolean(editing)} onClose={() => setEditing(null)} title={editing?.id ? 'Editar producto' : 'Crear producto'} description="Formulario organizado por secciones, con validacion visible y stock inicial." size="full">
         {editing ? <ProductForm product={editing} categories={categories} suppliers={suppliers} onSave={saveProduct} saving={saving} /> : null}
@@ -278,7 +280,7 @@ export function InventoryCenter() {
   const activeProducts = useMemo(() => products.filter((item) => !item.deletedAt && item.status !== 'Eliminado'), [products])
   const inventoryInsights = useMemo(() => buildInventoryInsights({ products: activeProducts, movements, invoices, entries, suppliers }), [activeProducts, entries, invoices, movements, suppliers])
   return (
-    <div className="space-y-5">
+    <div>
       <InventoryEnterpriseCenter insights={inventoryInsights} movements={movements} entries={entries} />
     </div>
   )
@@ -327,17 +329,17 @@ function ProductForm({ product, categories, suppliers, onSave, saving }) {
       <div className="space-y-4">
         <section className="rounded-lg border p-3" style={{ borderColor: 'var(--line)' }}>
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            <CompactField label="Nombre *" error={touched && errors.name}><input value={draft.name} onChange={(e) => set('name', e.target.value)} className="input-dark text-sm" placeholder="Ej. iPhone 15 Pro 256GB" /></CompactField>
-            <CompactField label="Categoria *" error={touched && errors.category}><input list="category-options" value={draft.category} onChange={(e) => set('category', e.target.value)} className="input-dark text-sm" placeholder="Categoria" /><datalist id="category-options">{categories.map((item) => <option key={item} value={item} />)}</datalist></CompactField>
-            <CompactField label="Marca"><input value={draft.brand} onChange={(e) => set('brand', e.target.value)} className="input-dark text-sm" placeholder="Apple, Samsung..." /></CompactField>
-            <CompactField label="Modelo"><input value={draft.model} onChange={(e) => set('model', e.target.value)} className="input-dark text-sm" /></CompactField>
-            <CompactField label="SKU"><input value={draft.sku} onChange={(e) => set('sku', e.target.value)} className="input-dark text-sm" placeholder="Autogenerado" /></CompactField>
-            <CompactField label="Codigo barras"><input value={draft.barcode} onChange={(e) => set('barcode', e.target.value)} className="input-dark text-sm" /></CompactField>
-            <CompactField label="Color"><input value={draft.color} onChange={(e) => set('color', e.target.value)} className="input-dark text-sm" /></CompactField>
-            <CompactField label="Capacidad/talla"><input value={draft.capacity} onChange={(e) => set('capacity', e.target.value)} className="input-dark text-sm" /></CompactField>
-            <CompactField label="Ubicacion"><input value={draft.location} onChange={(e) => set('location', e.target.value)} className="input-dark text-sm" placeholder="A1, vitrina..." /></CompactField>
+            <CompactField label="Nombre *" error={touched && errors.name}><input id="inventory-name" value={draft.name} onChange={(e) => set('name', e.target.value)} className="input-dark text-sm" placeholder="Ej. iPhone 15 Pro 256GB" /></CompactField>
+            <CompactField label="Categoria *" error={touched && errors.category}><input id="inventory-category" list="category-options" value={draft.category} onChange={(e) => set('category', e.target.value)} className="input-dark text-sm" placeholder="Categoria" /><datalist id="category-options">{categories.map((item) => <option key={item} value={item} />)}</datalist></CompactField>
+            <CompactField label="Marca"><input id="inventory-brand" value={draft.brand} onChange={(e) => set('brand', e.target.value)} className="input-dark text-sm" placeholder="Apple, Samsung..." /></CompactField>
+            <CompactField label="Modelo"><input id="inventory-model" value={draft.model} onChange={(e) => set('model', e.target.value)} className="input-dark text-sm" /></CompactField>
+            <CompactField label="SKU"><input id="inventory-sku" value={draft.sku} onChange={(e) => set('sku', e.target.value)} className="input-dark text-sm" placeholder="Autogenerado" /></CompactField>
+            <CompactField label="Codigo barras"><input id="inventory-barcode" value={draft.barcode} onChange={(e) => set('barcode', e.target.value)} className="input-dark text-sm" /></CompactField>
+            <CompactField label="Color"><input id="inventory-color" value={draft.color} onChange={(e) => set('color', e.target.value)} className="input-dark text-sm" /></CompactField>
+            <CompactField label="Capacidad/talla"><input id="inventory-capacity" value={draft.capacity} onChange={(e) => set('capacity', e.target.value)} className="input-dark text-sm" /></CompactField>
+            <CompactField label="Ubicacion"><input id="inventory-location" value={draft.location} onChange={(e) => set('location', e.target.value)} className="input-dark text-sm" placeholder="A1, vitrina..." /></CompactField>
           </div>
-          <CompactField label="Descripcion" className="mt-2"><textarea value={draft.description} onChange={(e) => set('description', e.target.value)} className="input-dark min-h-16 text-sm" /></CompactField>
+          <CompactField label="Descripcion" className="mt-2"><textarea id="inventory-description" value={draft.description} onChange={(e) => set('description', e.target.value)} className="input-dark min-h-16 text-sm" /></CompactField>
         </section>
 
         <section className="rounded-lg border p-3" style={{ borderColor: 'var(--line)' }}>
@@ -351,16 +353,16 @@ function ProductForm({ product, categories, suppliers, onSave, saving }) {
             <CompactField label={draft.id ? 'Stock actual' : 'Stock inicial'}><NumberInput value={draft.id ? draft.stock : draft.initialStock} onChange={(value) => draft.id ? set('stock', value) : set('initialStock', value)} /></CompactField>
             <CompactField label="Stock minimo"><NumberInput value={draft.stockMin} onChange={(value) => set('stockMin', value)} /></CompactField>
             <CompactField label="Stock maximo"><NumberInput value={draft.stockMax} onChange={(value) => set('stockMax', value)} /></CompactField>
-            <CompactField label="Unidad"><select value={draft.unit} onChange={(e) => set('unit', e.target.value)} className="input-dark text-sm"><option>Unidad</option><option>Caja</option><option>Kit</option><option>Par</option><option>Yarda</option><option>Metro</option></select></CompactField>
-            <CompactField label="ITBIS"><select value={draft.taxStatus} onChange={(e) => set('taxStatus', e.target.value)} className="input-dark text-sm"><option value="no_tax">Sin ITBIS</option><option value="taxed">Con ITBIS</option><option value="exempt">Exento</option></select></CompactField>
-            <CompactField label="Proveedor"><select value={draft.supplierId} onChange={(e) => set('supplierId', e.target.value)} className="input-dark text-sm">{suppliers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></CompactField>
+            <CompactField label="Unidad"><select id="inventory-unit" value={draft.unit} onChange={(e) => set('unit', e.target.value)} className="input-dark text-sm"><option>Unidad</option><option>Caja</option><option>Kit</option><option>Par</option><option>Yarda</option><option>Metro</option></select></CompactField>
+            <CompactField label="ITBIS"><select id="inventory-taxStatus" value={draft.taxStatus} onChange={(e) => set('taxStatus', e.target.value)} className="input-dark text-sm"><option value="no_tax">Sin ITBIS</option><option value="taxed">Con ITBIS</option><option value="exempt">Exento</option></select></CompactField>
+            <CompactField label="Proveedor"><select id="inventory-supplierId" value={draft.supplierId} onChange={(e) => set('supplierId', e.target.value)} className="input-dark text-sm">{suppliers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></CompactField>
           </div>
           <div className="mt-2 flex items-center gap-3">
             <label className="flex items-center gap-2 text-xs font-bold" style={{ color: 'rgba(255,255,255,.7)' }}>
-              <input type="checkbox" checked={draft.requiresSerial} onChange={(e) => set('requiresSerial', e.target.checked)} />
+              <input id="inventory-requiresSerial" type="checkbox" checked={draft.requiresSerial} onChange={(e) => set('requiresSerial', e.target.checked)} />
               Serial / IMEI
             </label>
-            {draft.requiresSerial ? <input value={draft.serialsText} onChange={(e) => set('serialsText', e.target.value)} className="input-dark flex-1 text-sm" placeholder="Seriales: uno por linea o coma" /> : null}
+            {draft.requiresSerial ? <input id="inventory-serialsText" value={draft.serialsText} onChange={(e) => set('serialsText', e.target.value)} className="input-dark flex-1 text-sm" placeholder="Seriales: uno por linea o coma" /> : null}
           </div>
         </section>
       </div>
@@ -368,7 +370,7 @@ function ProductForm({ product, categories, suppliers, onSave, saving }) {
       <aside className="space-y-3">
         <div className="rounded-lg border p-3 text-center" style={{ borderColor: 'var(--line)' }}>
           <ImagePlus className="mx-auto mb-1" size={24} style={{ color: 'rgba(255,255,255,.3)' }} />
-          <input value={draft.image || ''} onChange={(e) => set('image', e.target.value)} className="input-dark mt-1 text-sm" placeholder="URL imagen" />
+          <input id="inventory-image" value={draft.image || ''} onChange={(e) => set('image', e.target.value)} className="input-dark mt-1 text-sm" placeholder="URL imagen" />
         </div>
         <div className="space-y-1 rounded-lg border p-3 text-xs" style={{ borderColor: 'var(--line)' }}>
           <PreviewLine label="SKU" value={draft.sku || 'Autogenerado'} />
@@ -444,7 +446,18 @@ function ProductActions({ product, onView, onEdit, onAdjust, onLabel, onDelete, 
   )
 }
 
-const LABEL_SIZES = Object.entries(LABEL_DIMENSIONS).map(([id, dim]) => ({ id, name: dim.name, cols: dim.cols }))
+const LABEL_SIZES = Object.entries(NEW_LABEL_SIZES).filter(([id]) => !['letter','a4','58mm','80mm'].includes(id)).map(([id, dim]) => ({ id, name: dim.name, cols: id === '2x1' ? 4 : id.startsWith('4x') ? 2 : 3 }))
+const ALL_PRINT_MODES = [
+  { id: 'browser', label: 'PDF vectorial' },
+  { id: 'zpl', label: 'ZPL (Zebra, Xprinter)' },
+  { id: 'epl', label: 'EPL (Zebra old)' },
+  { id: 'tspl', label: 'TSPL (TSC)' },
+  { id: 'cpcl', label: 'CPCL (Honeywell)' },
+  { id: 'escpos', label: 'ESC/POS (Epson)' },
+  { id: 'usb', label: 'ZPL WebUSB' },
+  { id: 'escpos-usb', label: 'ESC/POS WebUSB' },
+  { id: 'png', label: 'Imagen PNG' },
+]
 
 function getSelectedBarcode(product, source, manualCode) {
   const value = source === 'manual'
@@ -504,6 +517,12 @@ function BarcodeLabelPrinter({ product }) {
   const [showSku, setShowSku] = useState(true)
   const [printMode, setPrintMode] = useState(company?.labelPrintMode || 'browser')
   const [zplStatus, setZplStatus] = useState('')
+  const [barcodeType, setBarcodeType] = useState('code128')
+  const [showDesigner, setShowDesigner] = useState(false)
+  const [showProfiles, setShowProfiles] = useState(false)
+  const [showMassPrint, setShowMassPrint] = useState(false)
+  const [designProfiles, setDesignProfiles] = useState(() => company?.labelProfiles || [])
+  const [customDesign, setCustomDesign] = useState(null)
   const code = getSelectedBarcode(product, source, manualCode)
   const qty = getLabelQuantity(product, quantity, quantityMode)
   const labels = Array.from({ length: qty })
@@ -522,7 +541,17 @@ function BarcodeLabelPrinter({ product }) {
     const opts = { labelSize: labelSize.id, includePrice: showPrice, includeSku: showSku, quantity: qty, barcode: selectedCode, sku: product.sku, dpi: company?.labelDpi || 203 }
     const sku = sanitizeFilename(product.sku || selectedCode || product.id)
 
+    /* ── Validate readability for thermal protocols ── */
+    if (!['browser','png'].includes(printMode)) {
+      const vr = validateBarcodeReadability(barcodeType, selectedCode)
+      if (!vr.valid) {
+        setZplStatus('⚠ Codigo invalido: ' + vr.reason + '. Corrija el codigo o use PDF.')
+        return
+      }
+    }
+
     try {
+      /* ── PDF vectorial (jsPDF) ── */
       if (printMode === 'browser') {
         const dim = LABEL_DIMENSIONS[labelSize.id] || LABEL_DIMENSIONS['3x2']
         const mmW = dim.widthIn * 25.4; const mmH = dim.heightIn * 25.4
@@ -562,8 +591,9 @@ function BarcodeLabelPrinter({ product }) {
           }
 
           const bc = buildCode128Bars(selectedCode)
-          const layout = getCode128Layout(bc, usableW - 3)
-          const startX = margin + 1.5 + Math.max(0, (usableW - 3 - layout.totalWidth) / 2)
+          const barAvail = usableW > 6 ? usableW - 4 : usableW
+          const layout = getBarcodeLayout(bc, barAvail)
+          const startX = margin + 2 + Math.max(0, (barAvail - layout.totalWidth) / 2)
           bc.bars.forEach((bar) => {
             const x = startX + layout.quietWidth + bar.x * layout.scale
             const w = Math.max(bar.width * layout.scale, 0.1)
@@ -572,22 +602,68 @@ function BarcodeLabelPrinter({ product }) {
           y += barH + mmH * 0.04
 
           const codeRemain = maxY - y
-          if (codeRemain > 1.5) { pdf.setFont('helvetica', 'bold'); pdf.setFontSize(Math.min(mmH * 0.035, codeRemain * 0.7)); pdf.text(String(selectedCode).slice(0, 30), mmW / 2, y + codeRemain * 0.3, { align: 'center' }) }
+          if (codeRemain > 1.5) {
+            const codeText = String(selectedCode).slice(0, 24)
+            const maxFs = Math.min(mmH * 0.028, codeRemain * 0.8)
+            let fs = maxFs
+            pdf.setFont('helvetica', 'bold')
+            while (fs > 1.5 && pdf.getTextWidth(codeText) > usableW) { fs -= 0.25 }
+            pdf.setFontSize(Math.max(1.5, fs))
+            pdf.text(codeText, mmW / 2, y + codeRemain * 0.5, { align: 'center' })
+          }
         }
 
-        const url = URL.createObjectURL(pdf.output('blob'))
-        const iframe = document.createElement('iframe'); iframe.style.display = 'none'; iframe.src = url
-        document.body.appendChild(iframe)
-        iframe.onload = () => { setTimeout(() => { iframe.contentWindow?.print(); setTimeout(() => { document.body.removeChild(iframe); URL.revokeObjectURL(url) }, 2000) }, 500) }
+        pdf.save('etiquetas.pdf')
         return
       }
 
+      /* ── ZPL ── */
       if (printMode === 'zpl') {
-        downloadZplFile(generateZPL(product, opts), 'etiqueta-' + sku + '.zpl')
+        const design = customDesign || createEmptyDesign(labelSize.id)
+        const filledDesign = fillDesignWithProduct(design, product, selectedCode)
+        const cal = findProfileCalibration(designProfiles, printMode)
+        const zpl = renderDesignToZpl(filledDesign, { ...cal, dpi: opts.dpi })
+        let full = ''
+        for (let i = 0; i < qty; i++) full += zpl + '\n'
+        downloadOutput(full, 'etiqueta-' + sku + '.zpl', 'text/plain')
         setZplStatus('Archivo ZPL descargado'); setTimeout(() => setZplStatus(''), 3000)
         return
       }
 
+      /* ── EPL ── */
+      if (printMode === 'epl') {
+        const design = customDesign || createEmptyDesign(labelSize.id)
+        const filledDesign = fillDesignWithProduct(design, product, selectedCode)
+        const cal = findProfileCalibration(designProfiles, 'epl')
+        const epl = renderDesignToEpl(filledDesign, { ...cal, dpi: opts.dpi })
+        downloadOutput(epl, 'etiqueta-' + sku + '.epl', 'text/plain')
+        setZplStatus('Archivo EPL descargado'); setTimeout(() => setZplStatus(''), 3000)
+        return
+      }
+
+      /* ── TSPL ── */
+      if (printMode === 'tspl') {
+        const design = customDesign || createEmptyDesign(labelSize.id)
+        const filledDesign = fillDesignWithProduct(design, product, selectedCode)
+        const cal = findProfileCalibration(designProfiles, 'tspl')
+        const tspl = renderDesignToTspl(filledDesign, { ...cal, dpi: opts.dpi })
+        downloadOutput(tspl, 'etiqueta-' + sku + '.tspl', 'text/plain')
+        setZplStatus('Archivo TSPL descargado'); setTimeout(() => setZplStatus(''), 3000)
+        return
+      }
+
+      /* ── CPCL ── */
+      if (printMode === 'cpcl') {
+        const design = customDesign || createEmptyDesign(labelSize.id)
+        const filledDesign = fillDesignWithProduct(design, product, selectedCode)
+        const cal = findProfileCalibration(designProfiles, 'cpcl')
+        const cpcl = renderDesignToCpcl(filledDesign, { ...cal, dpi: opts.dpi })
+        downloadOutput(cpcl, 'etiqueta-' + sku + '.cpcl', 'text/plain')
+        setZplStatus('Archivo CPCL descargado'); setTimeout(() => setZplStatus(''), 3000)
+        return
+      }
+
+      /* ── ZPL WebUSB ── */
       if (printMode === 'usb') {
         setZplStatus('Conectando impresora USB...')
         const name = await sendToUsbPrinter(generateZPL(product, opts))
@@ -595,12 +671,14 @@ function BarcodeLabelPrinter({ product }) {
         return
       }
 
+      /* ── ESC/POS ── */
       if (printMode === 'escpos') {
         downloadEscposFile(generateESCPOS(product, opts), 'etiqueta-' + sku + '.prn')
         setZplStatus('Archivo ESC/POS descargado'); setTimeout(() => setZplStatus(''), 3000)
         return
       }
 
+      /* ── ESC/POS WebUSB ── */
       if (printMode === 'escpos-usb') {
         setZplStatus('Conectando impresora ESC/POS...')
         const name = await sendEscposToUsb(generateESCPOS(product, opts))
@@ -608,6 +686,7 @@ function BarcodeLabelPrinter({ product }) {
         return
       }
 
+      /* ── PNG ── */
       if (printMode === 'png') {
         const canvas = renderLabelToCanvas(product, opts)
         downloadLabelPng(canvas, 'etiqueta-' + sku + '.png', opts.dpi || 203)
@@ -624,27 +703,68 @@ function BarcodeLabelPrinter({ product }) {
     }
   }
 
+  /* ── Helper: fill design template with product data ── */
+  function fillDesignWithProduct(design, product, code) {
+    return {
+      ...design,
+      elements: design.elements.map(el => ({
+        ...el,
+        content: el.type === 'barcode' ? (code || product.barcode || product.sku || product.id || 'SIN-CODIGO') :
+                 el.type === 'text' ? (el.content === 'Nombre' ? (product.name || 'Producto') : el.content === 'Precio' ? String(product.price || 0) : el.content) :
+                 el.content
+      }))
+    }
+  }
+
+  /* ── Helper: find calibration for profile matching protocol ── */
+  function findProfileCalibration(profiles, protocol) {
+    const profile = profiles.find(p => p.protocol === protocol)
+    return profile?.calibration || {}
+  }
+
+  function getPrintModeDesc(mode) {
+    const descs = {
+      browser: 'PDF vectorial con medidas exactas en mm. Compatible con cualquier impresora.',
+      zpl: 'Lenguaje ZPL para Zebra, Xprinter, Rongta, 2connet, Agiler.',
+      epl: 'Lenguaje EPL para impresoras Zebra antiguas (LP2824+, GK420).',
+      tspl: 'Lenguaje TSPL para TSC, Printronix Auto ID.',
+      cpcl: 'Lenguaje CPCL para Honeywell, Citizen, Godex.',
+      usb: 'ZPL directo por USB usando WebUSB (Chrome/Edge).',
+      escpos: 'ESC/POS para Epson TM, Bixolon, Star Micronics.',
+      'escpos-usb': 'ESC/POS directo por USB usando WebUSB (Chrome/Edge).',
+      png: 'Descarga imagen PNG a 203 DPI para compartir o imprimir.',
+    }
+    return descs[mode] || ''
+  }
+
   return (
     <div className="space-y-4">
-      <div className="no-print grid gap-3 sm:grid-cols-2 md:grid-cols-[1fr_130px_100px_80px_auto]">
-        <label><span className="label-dark">Codigo a imprimir</span><select value={source} onChange={(event) => setSource(event.target.value)} className="input-dark"><option value="barcode" disabled={!product.barcode}>Codigo de barras</option><option value="sku" disabled={!product.sku}>SKU</option><option value="id">ID interno</option><option value="manual">Manual</option></select></label>
-        <label><span className="label-dark">Tamaño</span><select value={labelSize.id} onChange={(event) => setLabelSize(LABEL_SIZES.find((s) => s.id === event.target.value) || LABEL_SIZES[0])} className="input-dark">{LABEL_SIZES.map((size) => <option key={size.id} value={size.id}>{size.name}</option>)}</select></label>
-        <label><span className="label-dark">Cantidad</span><input type="number" min="1" max="120" value={quantityMode === 'stock' ? qty : quantity} onChange={(event) => setQuantity(event.target.value)} disabled={quantityMode === 'stock'} className="input-dark" /></label>
-        <label className="flex items-center gap-2 pt-6 text-sm"><input type="checkbox" checked={showPrice} onChange={(e) => setShowPrice(e.target.checked)} /> Precio</label>
-        <label><span className="label-dark">Metodo</span><select value={printMode} onChange={(event) => setPrintMode(event.target.value)} className="input-dark">{PRINT_MODES.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</select></label>
+      <div className="no-print grid gap-3 sm:grid-cols-2 md:grid-cols-[1fr_130px_120px_80px_auto_auto]">
+        <label><span className="label-dark">Codigo a imprimir</span><select id="label-source" value={source} onChange={(event) => setSource(event.target.value)} className="input-dark"><option value="barcode" disabled={!product.barcode}>Codigo de barras</option><option value="sku" disabled={!product.sku}>SKU</option><option value="id">ID interno</option><option value="manual">Manual</option></select></label>
+        <label><span className="label-dark">Tamaño</span><select id="label-size" value={labelSize.id} onChange={(event) => setLabelSize(LABEL_SIZES.find((s) => s.id === event.target.value) || LABEL_SIZES[0])} className="input-dark">{LABEL_SIZES.map((size) => <option key={size.id} value={size.id}>{size.name}</option>)}</select></label>
+        <label><span className="label-dark">Cantidad</span><input id="label-quantity" type="number" min="1" max="120" value={quantityMode === 'stock' ? qty : quantity} onChange={(event) => setQuantity(event.target.value)} disabled={quantityMode === 'stock'} className="input-dark" /></label>
+        <label className="flex items-center gap-2 pt-6 text-sm"><input id="label-showPrice" type="checkbox" checked={showPrice} onChange={(e) => setShowPrice(e.target.checked)} /> Precio</label>
+        <label><span className="label-dark">Metodo</span><select id="label-printMode" value={printMode} onChange={(event) => setPrintMode(event.target.value)} className="input-dark">{ALL_PRINT_MODES.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</select></label>
         <Button icon={Printer} variant="primary" className="self-end" onClick={handlePrint} disabled={!code || qty < 1}>
           {printMode === 'browser' ? 'Imprimir' : printMode === 'usb' || printMode === 'escpos-usb' ? 'Enviar a USB' : 'Descargar'}
         </Button>
       </div>
-      <div className="no-print grid gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_170px_150px]">
-        {source === 'manual' ? <label><span className="label-dark">Codigo manual</span><input value={manualCode} onChange={(event) => setManualCode(event.target.value)} className="input-dark" placeholder="Escanee o escriba el codigo" /></label> : <div className="rounded-lg border px-3 py-2 text-sm" style={{ borderColor: 'var(--line)', background: 'rgba(255,255,255,.035)' }}><span className="block text-xs font-bold uppercase text-white/40">Codigo real</span><b className="font-mono">{code || 'SIN-CODIGO'}</b></div>}
-        <label><span className="label-dark">Cantidad</span><select value={quantityMode} onChange={(event) => setQuantityMode(event.target.value)} className="input-dark"><option value="manual">Manual</option><option value="stock">Automatica por stock</option></select></label>
-        <label className="flex items-center gap-2 pt-6 text-sm"><input type="checkbox" checked={showSku} onChange={(e) => setShowSku(e.target.checked)} /> SKU</label>
+      <div className="no-print flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-2">
+          {source === 'manual' ? <label className="flex items-center gap-1"><span className="text-xs text-white/50">Codigo manual</span><input id="label-manualCode" value={manualCode} onChange={(event) => setManualCode(event.target.value)} className="input-dark w-36" placeholder="Escanee o escriba" /></label> : <div className="rounded-lg border px-3 py-2 text-sm" style={{ borderColor: 'var(--line)', background: 'rgba(255,255,255,.035)' }}><span className="block text-xs font-bold uppercase text-white/40">Codigo real</span><b className="font-mono">{code || 'SIN-CODIGO'}</b></div>}
+          <label className="flex items-center gap-1"><span className="text-xs text-white/50">Cantidad</span><select id="label-quantityMode" value={quantityMode} onChange={(event) => setQuantityMode(event.target.value)} className="input-dark w-28"><option value="manual">Manual</option><option value="stock">Automatica x stock</option></select></label>
+          <label className="flex items-center gap-1 pt-5 text-sm"><input id="label-showSku" type="checkbox" checked={showSku} onChange={(e) => setShowSku(e.target.checked)} /> SKU</label>
+        </div>
+        <div className="flex gap-1">
+          <button onClick={() => setShowDesigner(true)} className="rounded bg-white/10 px-2 py-1 text-xs text-white/70 hover:bg-white/20" title="Disenar etiqueta personalizada">Disenar</button>
+          <button onClick={() => setShowProfiles(true)} className="rounded bg-white/10 px-2 py-1 text-xs text-white/70 hover:bg-white/20" title="Perfiles de impresora">Perfiles</button>
+          <button onClick={() => setShowMassPrint(true)} className="rounded bg-white/10 px-2 py-1 text-xs text-white/70 hover:bg-white/20" title="Impresion masiva">Masiva</button>
+        </div>
       </div>
       {zplStatus && <p className="text-sm text-emerald-300">{zplStatus}</p>}
       {!code ? <p className="text-sm text-amber-300">Seleccione un codigo existente o use el modo manual.</p> : null}
       {quantityMode === 'stock' && qty === 0 ? <p className="text-sm text-amber-300">El producto no tiene stock disponible para generar etiquetas automaticas.</p> : null}
-      <div className="mt-2 text-xs text-white/40">{PRINT_MODES.find((m) => m.id === printMode)?.desc}</div>
+      <div className="mt-2 text-xs text-white/40">{getPrintModeDesc(printMode)}</div>
       <div className={`label-grid grid gap-2 ${labelSize.id === '2x1' ? 'grid-cols-4' : labelSize.id === '4x2' || labelSize.id === '4x3' ? 'grid-cols-2' : 'grid-cols-3'}`}>
         {labels.map((_, index) => (
           <div key={index} className="label-item flex flex-col items-center justify-center rounded border border-slate-300 bg-white p-2 text-center text-slate-950 print:break-inside-avoid">
@@ -658,12 +778,40 @@ function BarcodeLabelPrinter({ product }) {
           </div>
         ))}
       </div>
+
+      {/* ── Dialogs ── */}
+      {showDesigner && (
+        <LabelDesigner
+          initialDesign={customDesign}
+          onSave={(design) => { setCustomDesign(design); setShowDesigner(false); setZplStatus('Diseno guardado') }}
+          onClose={() => setShowDesigner(false)}
+          dpi={company?.labelDpi || 203}
+        />
+      )}
+      {showProfiles && (
+        <LabelPrinterProfileDialog
+          design={customDesign || createEmptyDesign(labelSize.id)}
+          profiles={designProfiles}
+          onSave={(profiles) => { setDesignProfiles(profiles); setShowProfiles(false); setZplStatus('Perfiles guardados') }}
+          onClose={() => setShowProfiles(false)}
+        />
+      )}
+      {showMassPrint && (
+        <LabelMassPrintDialog
+          products={[product]}
+          design={customDesign || createEmptyDesign(labelSize.id)}
+          printerProfile={designProfiles.find(p => p.protocol === printMode)}
+          onClose={() => setShowMassPrint(false)}
+        />
+      )}
     </div>
   )
 }
 
-function BarcodeSvg({ value, height = 32 }) {
-  const barcode = buildCode128Bars(value)
+function BarcodeSvg({ value, height = 32, type = 'code128' }) {
+  const fn = type === 'ean13' ? buildEAN13Bars : type === 'upc' ? buildUPABars : buildCode128Bars
+  const barcode = fn(value)
+  if (!barcode || !barcode.bars) return <div className="text-[8px] text-red-400">Error</div>
   const quiet = 10
   const width = barcode.width + quiet * 2
   return (
@@ -683,7 +831,7 @@ function InventoryEnterpriseCenter({ insights, movements, entries }) {
     ['purchases', 'Compras', Truck],
   ]
   return (
-    <section className="module-surface p-4 sm:p-5">
+    <section>
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div>
           <p className="flex items-center gap-2 text-xs font-extrabold uppercase" style={{ color: 'rgb(191,219,254)' }}><Layers3 size={15} /> Inventario empresarial</p>
@@ -705,10 +853,10 @@ function InventoryEnterpriseCenter({ insights, movements, entries }) {
       </div>
       <div className="mt-4">
         {tab === 'alerts' ? <InventoryAlertPanel insights={insights} /> : null}
-        {tab === 'kardex' ? <DataTable data={movements} columns={kardexColumns} initialPageSize={25} maxBodyHeight="58vh" emptyText="Sin movimientos de inventario." searchPlaceholder="Buscar producto, serial, documento o tipo..." /> : null}
-        {tab === 'valuation' ? <DataTable data={insights.valuationRows} columns={valuationColumns} initialPageSize={25} maxBodyHeight="58vh" emptyText="No hay productos valorizados." searchPlaceholder="Buscar producto, categoria o SKU..." /> : null}
+        {tab === 'kardex' ? <DataTable data={movements} columns={kardexColumns} initialPageSize={25} emptyText="Sin movimientos de inventario." searchPlaceholder="Buscar producto, serial, documento o tipo..." /> : null}
+        {tab === 'valuation' ? <DataTable data={insights.valuationRows} columns={valuationColumns} initialPageSize={25} emptyText="No hay productos valorizados." searchPlaceholder="Buscar producto, categoria o SKU..." /> : null}
         {tab === 'rotation' ? <InventoryRotationPanel insights={insights} /> : null}
-        {tab === 'purchases' ? <DataTable data={entries} columns={purchaseColumns} initialPageSize={15} maxBodyHeight="58vh" emptyText="Sin entradas o compras registradas." searchPlaceholder="Buscar proveedor, referencia o producto..." /> : null}
+        {tab === 'purchases' ? <DataTable data={entries} columns={purchaseColumns} initialPageSize={15} emptyText="Sin entradas o compras registradas." searchPlaceholder="Buscar proveedor, referencia o producto..." /> : null}
       </div>
     </section>
   )
@@ -725,7 +873,7 @@ function InventoryAlertPanel({ insights }) {
           </div>
         )) : <p className="rounded-xl border p-4 text-sm font-bold" style={{ borderColor: 'rgba(52,211,153,.2)', background: 'rgba(16,185,129,.1)', color: 'rgb(167,243,208)' }}>Inventario sin alertas criticas.</p>}
       </div>
-      <DataTable data={insights.reorderRows} columns={reorderColumns} initialPageSize={12} maxBodyHeight="420px" emptyText="Sin productos para reponer." searchPlaceholder="Buscar reposicion..." />
+      <DataTable data={insights.reorderRows} columns={reorderColumns} initialPageSize={12} emptyText="Sin productos para reponer." searchPlaceholder="Buscar reposicion..." />
     </div>
   )
 }
@@ -733,20 +881,20 @@ function InventoryAlertPanel({ insights }) {
 function InventoryRotationPanel({ insights }) {
   return (
     <div className="grid gap-5 xl:grid-cols-2">
-      <section className="panel rounded-xl p-4">
+      <section>
         <h3 className="mb-3 font-display text-xl font-bold">Productos top</h3>
-        <DataTable data={insights.topProducts} columns={rotationColumns} initialPageSize={10} maxBodyHeight="380px" emptyText="Aun no hay ventas para ranking." />
+        <DataTable data={insights.topProducts} columns={rotationColumns} initialPageSize={10} emptyText="Aun no hay ventas para ranking." />
       </section>
-      <section className="panel rounded-xl p-4">
+      <section>
         <h3 className="mb-3 font-display text-xl font-bold">Sin rotacion</h3>
-        <DataTable data={insights.noRotation} columns={noRotationColumns} initialPageSize={10} maxBodyHeight="380px" emptyText="Todos los productos tienen movimiento reciente." />
+        <DataTable data={insights.noRotation} columns={noRotationColumns} initialPageSize={10} emptyText="Todos los productos tienen movimiento reciente." />
       </section>
     </div>
   )
 }
 
 function InventoryMetric({ title, value, detail, tone }) {
-  return <div className={`rounded-lg border p-4 ${tone === 'danger' ? 'border-red-400/20 bg-red-500/10' : 'border-white/10 bg-white/[0.04]'}`}><p className="text-xs font-extrabold uppercase" style={{ color: 'rgba(255,255,255,.4)' }}>{title}</p><p className="mt-1 font-display text-2xl font-bold">{value}</p><p className="mt-1 text-xs" style={{ color: 'rgba(255,255,255,.45)' }}>{detail}</p></div>
+  return <div className="summary-chip"><span className="summary-chip-label">{title}</span><span className="summary-chip-value">{value}</span><p className="mt-1 text-xs" style={{ color: 'rgba(255,255,255,.45)' }}>{detail}</p></div>
 }
 
 function InventoryCategoryStrip({ rows }) {

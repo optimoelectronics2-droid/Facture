@@ -56,7 +56,7 @@ export function Dashboard() {
     <div className="space-y-6">
       <div className="pointer-events-none fixed inset-0 transition-all duration-700" style={{ background: `radial-gradient(ellipse 80% 50% at 50% -10%, color-mix(in srgb, var(--${activeLevel.color}) 12%, transparent), transparent)` }} />
 
-      <section className="module-surface p-5 sm:p-6 relative overflow-hidden">
+      <section className="module-header relative">
         <div className="pointer-events-none absolute -right-20 -top-20 h-60 w-60 rounded-full opacity-20 blur-3xl" style={{ background: `color-mix(in srgb, var(--${activeLevel.color}) 15%, transparent)` }} />
         <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
           <div>
@@ -135,7 +135,7 @@ function LevelHeader({ label, description, color, icon: Icon }) {
 function CriticalLevel({ model, navigate, overdueCount, lowStockCritical, morososCount }) {
   const totals = model.totals || {}
   return (
-    <div className="space-y-5">
+    <div className="section-card space-y-5">
       <LevelHeader label="Nivel 1 — Criticos" description="Indicadores que requieren atencion inmediata" color="red" icon={ShieldAlert} />
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard icon={CircleDollarSign} accent="red" label="Ventas vencidas" value={currency.format(totals.overdueBalance || 0)} detail={`${overdueCount} facturas vencidas`} onOpen={() => navigate('/dashboard/facturas-vencidas')} openLabel="Ver vencidas" />
@@ -150,7 +150,7 @@ function CriticalLevel({ model, navigate, overdueCount, lowStockCritical, moroso
 function OperationsLevel({ model, navigate }) {
   const totals = model.totals || {}
   return (
-    <div className="space-y-5">
+    <div className="section-card space-y-5">
       <LevelHeader label="Nivel 2 — Actividad operativa" description="Ventas, cobros, abonos y facturacion del dia" color="blue" icon={TrendingUp} />
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard icon={CircleDollarSign} accent="green" label="Ventas contado hoy" value={currency.format(totals.todayCashSales || 0)} detail={`${totals.invoicesToday || 0} facturas`} miniStats={[{ label: 'Total hoy', value: currency.format(totals.todaySales || 0) }, { label: 'Productos', value: totals.productsSoldToday || 0 }, { label: 'ITBIS', value: currency.format(totals.todayTax || 0) }]} onOpen={() => navigate('/dashboard/ventas-hoy')} openLabel="Ver ventas" />
@@ -166,7 +166,7 @@ function AlertsLevel({ model, navigate, overdueCount, lowStockCritical, morososC
   const totals = model.totals || {}
   const openRecs = model.openReceivables || []
   return (
-    <div className="space-y-5">
+    <div className="section-card space-y-5">
       <LevelHeader label="Nivel 3 — Alertas y seguimiento" description="Creditos, vencimientos, stock bajo y cuentas por cobrar" color="amber" icon={AlertTriangle} />
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard icon={Wallet} accent="violet" label="Cuentas por cobrar" value={currency.format(totals.receivablesBalance || 0)} detail={`${openRecs.length} balance(s) abiertos`} miniStats={[{ label: 'Abiertas', value: openRecs.length }, { label: 'Vencidas', value: overdueCount }, { label: 'Clientes', value: new Set(openRecs.map((i) => i.customerId)).size }]} onOpen={() => navigate('/dashboard/cuentas-por-cobrar')} openLabel="Ver CxC" />
@@ -181,7 +181,7 @@ function AlertsLevel({ model, navigate, overdueCount, lowStockCritical, morososC
 function AnalysisLevel({ model, customers, navigate }) {
   const totals = model.totals || {}
   return (
-    <div className="space-y-5">
+    <div className="section-card space-y-5">
       <LevelHeader label="Nivel 4 — Analisis y rendimiento" description="Ganancias, impuestos, tendencias y rendimiento mensual" color="violet" icon={BarChart3} />
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard icon={Banknote} accent="amber" label="Ganancia mes" value={currency.format(totals.monthProfit || 0)} detail={`Margen: ${totals.monthSales ? ((totals.monthProfit / totals.monthSales) * 100).toFixed(1) : '0.0'}%`} miniStats={[{ label: 'Ventas', value: currency.format(totals.monthSales || 0) }, { label: 'Docs', value: model.monthInvoices?.length || 0 }]} onOpen={() => navigate('/dashboard/ganancia-mes')} openLabel="Ver ganancia" />
@@ -196,7 +196,7 @@ function AnalysisLevel({ model, customers, navigate }) {
 function DetailLevel({ model, customers, navigate }) {
   const totals = model.totals || {}
   return (
-    <div className="space-y-5">
+    <div className="section-card space-y-5">
       <LevelHeader label="Nivel 5 — Detalle completo" description="Todas las metricas del negocio en un solo vistazo" color="cyan" icon={Zap} />
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard icon={CircleDollarSign} accent="blue" label="Resumen ejecutivo" value={currency.format(totals.monthSales || 0)} detail="Contado y credito separados" miniStats={[{ label: 'Contado mes', value: currency.format(totals.monthCashSales || 0) }, { label: 'Credito mes', value: currency.format(totals.monthCreditSales || 0) }, { label: 'CxC pend.', value: currency.format(totals.receivablesBalance || 0) }, { label: 'Ganancia', value: currency.format(totals.monthProfit || 0) }]} onOpen={() => navigate('/dashboard/resumen-ejecutivo')} openLabel="Ver resumen" />

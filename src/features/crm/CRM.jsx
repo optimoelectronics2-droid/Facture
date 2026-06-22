@@ -73,39 +73,40 @@ export function CRM() {
   }
 
   return (
-    <div className="space-y-5">
-      <section className="module-surface p-5 sm:p-6">
+    <div className="space-y-0">
+      <section className="module-header">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div>
-            <p className="text-xs font-extrabold uppercase" style={{ color: 'var(--color-analytics)' }}>CRM</p>
-            <h2 className="font-display text-3xl font-bold">Clientes</h2>
-            <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>Registro desde cero, credito, historial y equipos comprados.</p>
+            <p className="module-header-eyebrow">CRM</p>
+            <h2 className="module-header-title">Clientes</h2>
+            <p className="module-header-desc">Registro desde cero, credito, historial y equipos comprados.</p>
           </div>
           <Button icon={Plus} onClick={() => setEditing(emptyCustomer)}>Nuevo cliente</Button>
         </div>
         <div className="mt-4 grid gap-3 md:grid-cols-4">
-          <SummaryCard label="Total clientes" value={customers.length} />
-          <SummaryCard label="Activos" value={statusCounts.active} accent="green" />
-          <SummaryCard label="Con credito" value={statusCounts.credit} accent="amber" />
-          <SummaryCard label="Saldo por cobrar" value={currency.format(customers.reduce((s, c) => s + Number(c.balance || 0), 0))} accent="blue" />
+          <div className="summary-chip"><span className="summary-chip-label">Total clientes</span><span className="summary-chip-value">{customers.length}</span></div>
+          <div className="summary-chip"><span className="summary-chip-label">Activos</span><span className="summary-chip-value">{statusCounts.active}</span></div>
+          <div className="summary-chip"><span className="summary-chip-label">Con credito</span><span className="summary-chip-value">{statusCounts.credit}</span></div>
+          <div className="summary-chip"><span className="summary-chip-label">Saldo por cobrar</span><span className="summary-chip-value">{currency.format(customers.reduce((s, c) => s + Number(c.balance || 0), 0))}</span></div>
         </div>
       </section>
 
-      <section className="module-surface p-4 sm:p-5">
+      <div className="section-card">
         <div className="mb-4 flex flex-wrap items-center gap-3">
-          <div className="flex flex-1 items-center gap-2 rounded-lg px-3 py-2" style={{ border: '1px solid var(--line)', background: 'var(--bg-input)' }}>
+          <div className="module-search-bar">
             <Search size={16} style={{ color: 'var(--text-tertiary)' }} />
-            <input value={query} onChange={(e) => setQuery(e.target.value)} className="min-w-0 flex-1 bg-transparent text-sm outline-none" placeholder="Buscar por nombre, RNC, cedula, email, telefono..." />
+            <input id="crm-query" value={query} onChange={(e) => setQuery(e.target.value)} className="min-w-0 flex-1 bg-transparent text-sm outline-none" placeholder="Buscar por nombre, RNC, cedula, email, telefono..." />
           </div>
         </div>
         <div className="mb-4 flex flex-wrap gap-2">
           {statusFilters.map((item) => (
-            <button key={item.id} onClick={() => setStatusFilter(item.id)} className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-bold transition ${statusFilter === item.id ? 'border-blue-400 bg-blue-500/15 text-blue-100' : 'border-white/10 bg-white/[0.035] text-white/55 hover:bg-white/[0.07]'}`}>
+            <button key={item.id} onClick={() => setStatusFilter(item.id)} className={`quick-filter-btn${statusFilter === item.id ? ' active' : ''}`}>
               {item.label}
-              <span className="rounded-full px-2 py-0.5 text-[10px] font-bold" style={{ background: statusFilter === item.id ? 'rgba(59,130,246,.25)' : 'rgba(255,255,255,.1)' }}>{item.count}</span>
+              <span className="rounded-full px-2 py-0.5 text-[10px] font-bold" style={{ background: 'var(--bg-elevated)', color: 'var(--line)' }}>{item.count}</span>
             </button>
           ))}
         </div>
+        <div className="section-divider" />
         <DataTable data={filtered} columns={[
           { header: 'Cliente', cell: ({ row }) => <CustomerInfo customer={row.original} /> },
           { header: 'Contacto', cell: ({ row }) => <div><p>{row.original.phone || row.original.whatsapp || '-'}</p><p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>{row.original.email || ''}</p></div> },
@@ -116,7 +117,7 @@ export function CRM() {
           { header: 'Estado', cell: ({ row }) => <StatusBadge customer={row.original} /> },
           { header: 'Acciones', cell: ({ row }) => <div className="flex gap-1"><Icon icon={Eye} onClick={() => setViewing(row.original)} /><Icon icon={Pencil} onClick={() => setEditing(row.original)} /><Icon icon={MessageCircle} onClick={() => window.open(`https://wa.me/${row.original.whatsapp}`)} /><Icon icon={Trash2} onClick={() => remove(row.original)} /></div> },
         ]} emptyText="No hay clientes que coincidan con los filtros." />
-      </section>
+      </div>
 
       <Modal open={Boolean(editing)} onClose={() => setEditing(null)} title={editing?.id ? 'Editar cliente' : 'Crear cliente'} size="xl">
         {editing ? <CustomerForm customer={editing} onSave={save} /> : null}

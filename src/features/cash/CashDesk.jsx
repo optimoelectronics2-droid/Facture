@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { Download, FileSpreadsheet, Lock, Plus, Printer, Trash2, Unlock, AlertTriangle } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { DataTable } from '../../components/ui/DataTable'
@@ -10,7 +11,8 @@ import { currency, formatDate } from '../../lib/formatters'
 import { useToast } from '../../hooks/useToast'
 import { useERPStore } from '../../store/useERPStore'
 
-const movementCategories = ['Gastos', 'Compras', 'Transporte', 'Mensajeria', 'Servicios', 'Mantenimiento', 'Retiros', 'Ingresos extraordinarios', 'Ajustes']
+const movementCategories = ['Gastos', 'Compras', 'Transporte', 'Mensajeria', 'Delivery', 'Servicios', 'Luz', 'Internet', 'Telefono', 'Alquiler', 'Nomina', 'Combustible', 'Mantenimiento', 'Retiros', 'Ingresos extraordinarios', 'Ajustes', 'Impuestos', 'Bancos', 'Otros']
+const paymentMethods = ['Efectivo', 'Tarjeta', 'Transferencia', 'Deposito', 'Cheque', 'Pago movil', 'Zelle', 'PayPal', 'Credito', 'Otro']
 const periodOptions = [
   { id: 'day', label: 'Dia' },
   { id: 'week', label: 'Semana' },
@@ -19,8 +21,10 @@ const periodOptions = [
   { id: 'all', label: 'Todo' },
 ]
 
-export function CashDesk() {
+export function CashDesk({ manualOnly = false }) {
   const toast = useToast()
+  const location = useLocation()
+  const navigate = useNavigate()
   const company = useERPStore((state) => state.company)
   const branches = useERPStore((state) => state.branches)
   const invoices = useERPStore((state) => state.invoices)
@@ -42,14 +46,15 @@ export function CashDesk() {
     cashier: currentUser?.name || 'Usuario',
   })
   const [counted, setCounted] = useState(cash.counted || 0)
-  const [movement, setMovement] = useState({ type: 'expense', category: 'Gastos', amount: '', method: 'Efectivo', concept: '', reference: '' })
+  const [movement, setMovement] = useState(defaultManualMovement())
   const [movementPeriod, setMovementPeriod] = useState('day')
   const [closeConfirm, setCloseConfirm] = useState(false)
+  const standaloneManual = manualOnly || location.pathname === '/movimientos-manuales'
   const report = useMemo(() => buildCashCutReport({ cashRegister: { ...cash, counted }, invoices, creditNotes, expenses, receivables, payments, company, branches }), [branches, cash, company, counted, creditNotes, expenses, invoices, payments, receivables])
   const manualMovements = useMemo(() => (report.movements || [])
     .filter((item) => isManualMovement(item))
-    .filter((item) => inMovementPeriod(item.createdAt, movementPeriod))
-    .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt))), [movementPeriod, report.movements])
+    .filter((item) => inMovementPeriod(item.movementDate || item.createdAt, movementPeriod))
+    .sort((left, right) => String(right.movementDate || right.createdAt).localeCompare(String(left.movementDate || left.createdAt))), [movementPeriod, report.movements])
   const manualSummary = useMemo(() => summarizeManualMovements(manualMovements), [manualMovements])
 
   function setOpenField(key, value) {
@@ -61,11 +66,15 @@ export function CashDesk() {
     setOpenForm((state) => ({ ...state, branchId, branchName: branch?.name || '' }))
   }
 
+  function setMovementField(key, value) {
+    setMovement((state) => ({ ...state, [key]: value }))
+  }
+
   function submitMovement(event) {
     event.preventDefault()
     try {
       registerCashMovement(movement)
-      setMovement({ type: 'expense', category: 'Gastos', amount: '', method: 'Efectivo', concept: '', reference: '' })
+      setMovement(defaultManualMovement())
       toast.success('Movimiento registrado y caja recalculada.')
     } catch (error) {
       toast.error(error.message)
@@ -137,34 +146,114 @@ export function CashDesk() {
 
   function exportManualCsv() {
     downloadCsv(`movimientos-manuales-${movementPeriod}.csv`, manualMovements.map((item) => ({
-      Fecha: formatDate(item.createdAt),
+      Fecha: formatDate(item.movementDate || item.createdAt),
       Tipo: movementTypeLabel(item.type),
       Categoria: item.category || '',
       Metodo: item.method || '',
+      Destino: item.destination || '',
+      Mensajero: item.messenger || '',
       Concepto: item.concept || item.note || '',
       Referencia: item.reference || '',
+      Canal: item.channel || '',
+      Notas: item.notes || '',
       Monto: signedManualAmount(item),
     })))
   }
 
+  async function exportManualPdf() {
+    const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')])
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4', compress: true })
+    const periodLabel = periodOptions.find((option) => option.id === movementPeriod)?.label || 'Todo'
+    const companyName = report.companyName || company?.name || 'Trifusion Technologies'
+    doc.setProperties({ title: `Movimientos manuales - ${periodLabel}` })
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(16)
+    doc.text('Reporte avanzado de movimientos manuales', 12, 14)
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(8.5)
+    doc.text(`${companyName} | RNC: ${report.rnc || company?.rnc || 'N/A'} | Periodo: ${periodLabel} | Generado: ${formatDate(new Date())}`, 12, 21)
+    doc.text(`Sucursal: ${report.branchName || 'Principal'} | Caja: ${report.cashName || cash.name || 'Caja principal'} | Cajero: ${report.cashier || currentUser?.name || 'Usuario'}`, 12, 27)
+
+    autoTable(doc, {
+      startY: 34,
+      head: [['Indicador', 'Valor', 'Indicador', 'Valor']],
+      body: [
+        ['Ingresos manuales', currency.format(manualSummary.income), 'Salidas manuales', currency.format(manualSummary.outflow)],
+        ['Balance manual', currency.format(manualSummary.net), 'Movimientos', manualSummary.count],
+        ['Promedio ingresos', currency.format(manualSummary.avgIncome), 'Promedio salidas', currency.format(manualSummary.avgOutflow)],
+        ['Mayor ingreso', currency.format(manualSummary.maxIncome), 'Mayor salida', currency.format(manualSummary.maxOutflow)],
+      ],
+      styles: { fontSize: 8.5, cellPadding: 2.2 },
+      headStyles: { fillColor: [37, 99, 235], textColor: 255 },
+      columnStyles: { 1: { halign: 'right' }, 3: { halign: 'right' } },
+    })
+
+    const breakdownRows = [
+      ...manualSummary.byType.map((item) => ['Tipo', item.label, item.count, currency.format(item.income), currency.format(item.outflow), currency.format(item.net)]),
+      ...manualSummary.byCategory.map((item) => ['Categoria', item.label, item.count, currency.format(item.income), currency.format(item.outflow), currency.format(item.net)]),
+      ...manualSummary.byMethod.map((item) => ['Metodo', item.label, item.count, currency.format(item.income), currency.format(item.outflow), currency.format(item.net)]),
+    ]
+    autoTable(doc, {
+      startY: doc.lastAutoTable.finalY + 8,
+      head: [['Grupo', 'Detalle', 'Cantidad', 'Ingresos', 'Salidas', 'Balance']],
+      body: breakdownRows.length ? breakdownRows : [['Sin movimientos', 'No hay datos en este periodo', 0, currency.format(0), currency.format(0), currency.format(0)]],
+      styles: { fontSize: 8, cellPadding: 2 },
+      headStyles: { fillColor: [16, 185, 129], textColor: 255 },
+      columnStyles: { 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' } },
+    })
+
+    autoTable(doc, {
+      startY: doc.lastAutoTable.finalY + 8,
+      head: [['Fecha', 'Tipo', 'Categoria', 'Metodo', 'Destino', 'Mensajero', 'Concepto', 'Referencia', 'Monto']],
+      body: manualMovements.map((item) => [
+        formatDate(item.movementDate || item.createdAt),
+        movementTypeLabel(item.type),
+        item.category || '',
+        item.method || '',
+        item.destination || '',
+        item.messenger || '',
+        item.concept || item.note || '',
+        item.reference || '',
+        currency.format(signedManualAmount(item)),
+      ]),
+      styles: { fontSize: 7.4, cellPadding: 1.8, overflow: 'linebreak' },
+      headStyles: { fillColor: [99, 102, 241], textColor: 255 },
+      columnStyles: { 6: { cellWidth: 58 }, 7: { cellWidth: 34 }, 8: { halign: 'right' } },
+      didDrawPage: () => {
+        const pageHeight = doc.internal.pageSize.getHeight()
+        doc.setFontSize(7)
+        doc.setTextColor(120)
+        doc.text(`Movimientos manuales | ${companyName}`, 12, pageHeight - 8)
+      },
+    })
+    doc.save(`movimientos-manuales-avanzado-${movementPeriod}.pdf`)
+  }
+
   return (
     <div className="space-y-5">
-      <section className="module-surface p-5 sm:p-6">
+      <section>
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div>
-            <p className="text-sm font-bold uppercase" style={{ color: 'rgb(191,219,254)' }}>Caja profesional</p>
-            <h2 className="font-display text-3xl font-bold">Apertura, movimientos y corte diario</h2>
-            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Control tactil para POS, tablets y arqueos con auditoria del estado actual.</p>
+            <p className="text-sm font-bold uppercase" style={{ color: 'rgb(191,219,254)' }}>{standaloneManual ? 'Operaciones' : 'Caja profesional'}</p>
+            <h2 className="font-display text-3xl font-bold">{standaloneManual ? 'Registro completo de movimientos manuales' : 'Apertura, movimientos y corte diario'}</h2>
+            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{standaloneManual ? 'Entradas, salidas, pagos operativos, mensajeria, servicios y gastos sin mezclar la pantalla de arqueo.' : 'Control tactil para POS, tablets y arqueos con auditoria del estado actual.'}</p>
           </div>
           <div className="no-print flex flex-wrap gap-2">
-            <Button variant="ghost" icon={Printer} onClick={() => window.print()}>Imprimir corte</Button>
-            <Button variant="primary" icon={Download} onClick={exportCutPdf}>PDF corte</Button>
+            {standaloneManual ? (
+              <Button variant="ghost" onClick={() => navigate('/caja')}>Volver a caja</Button>
+            ) : (
+              <>
+                <Button variant="ghost" onClick={() => navigate('/movimientos-manuales')}>Registro manual</Button>
+                <Button variant="ghost" icon={Printer} onClick={() => window.print()}>Imprimir corte</Button>
+                <Button variant="primary" icon={Download} onClick={exportCutPdf}>PDF corte</Button>
+              </>
+            )}
           </div>
         </div>
       </section>
 
-      <section className="grid gap-5 xl:grid-cols-[.82fr_1.18fr]">
-        <div className="panel rounded-lg p-4 sm:p-5">
+      {!standaloneManual ? <section className="grid gap-5 xl:grid-cols-[.82fr_1.18fr]">
+        <div>
           <h3 className="font-display text-xl font-bold">Apertura y cierre</h3>
           <div className="mt-4 rounded-lg p-4" style={{ border: '1px solid var(--line)', background: 'rgba(255,255,255,.035)' }}>
             <p className="text-xs font-bold uppercase" style={{ color: 'rgba(255,255,255,.4)' }}>Estado</p>
@@ -186,7 +275,7 @@ export function CashDesk() {
           </div>
         </div>
 
-        <div className="printable-report panel rounded-lg p-4 sm:p-5">
+        <div className="printable-report">
           <h3 className="font-display text-xl font-bold">Corte de caja</h3>
           <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <Total label="Ventas totales" value={report.grossSales} />
@@ -203,22 +292,33 @@ export function CashDesk() {
             <DataTable data={report.movements || []} columns={movementColumns(removeMovement)} initialPageSize={8} emptyText="Sin movimientos de caja." />
           </div>
         </div>
-      </section>
+      </section> : null}
 
-      <section className="module-surface p-4 sm:p-5">
-        <h3 className="font-display text-xl font-bold">Movimiento manual</h3>
-        <form onSubmit={submitMovement} className="mt-4 grid gap-3 lg:grid-cols-[.7fr_.85fr_.7fr_.7fr_1fr_1fr_auto]">
-          <label><span className="label-dark">Tipo</span><select id="cash-movement-type" name="cash-movement-type" value={movement.type} onChange={(event) => setMovement((state) => ({ ...state, type: event.target.value }))} className="input-dark"><option value="income">Ingreso</option><option value="expense">Gasto</option><option value="withdrawal">Retiro</option></select></label>
-          <label><span className="label-dark">Categoria</span><select id="cash-movement-category" name="cash-movement-category" value={movement.category} onChange={(event) => setMovement((state) => ({ ...state, category: event.target.value }))} className="input-dark">{movementCategories.map((category) => <option key={category}>{category}</option>)}</select></label>
-          <label><span className="label-dark">Metodo</span><select id="cash-movement-method" name="cash-movement-method" value={movement.method} onChange={(event) => setMovement((state) => ({ ...state, method: event.target.value }))} className="input-dark"><option>Efectivo</option><option>Tarjeta</option><option>Transferencia</option></select></label>
-          <label><span className="label-dark">Monto</span><input id="cash-movement-amount" name="cash-movement-amount" type="number" value={movement.amount} onChange={(event) => setMovement((state) => ({ ...state, amount: event.target.value }))} className="input-dark" /></label>
-          <label><span className="label-dark">Concepto</span><input id="cash-movement-concept" name="cash-movement-concept" value={movement.concept} onChange={(event) => setMovement((state) => ({ ...state, concept: event.target.value }))} className="input-dark" /></label>
-          <label><span className="label-dark">Referencia</span><input id="cash-movement-reference" name="cash-movement-reference" value={movement.reference} onChange={(event) => setMovement((state) => ({ ...state, reference: event.target.value }))} className="input-dark" /></label>
-          <Button icon={Plus} variant="primary" className="self-end" type="submit">Registrar</Button>
+      <section id="registro-manual" className="manual-operations-panel">
+        <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+          <div>
+            <h3 className="font-display text-xl font-bold">Movimiento manual</h3>
+            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Registra pagos, gastos, servicios, mensajeria, entradas y salidas operativas desde cero.</p>
+          </div>
+          <span className="rounded-full border px-3 py-2 text-xs font-black uppercase" style={{ borderColor: 'rgba(16,185,129,.28)', background: 'rgba(16,185,129,.09)', color: 'rgb(167,243,208)' }}>Modulo separado</span>
+        </div>
+        <form onSubmit={submitMovement} className="manual-entry-form mt-4">
+          <label><span className="label-dark">Tipo</span><select id="cash-movement-type" name="cash-movement-type" value={movement.type} onChange={(event) => setMovementField('type', event.target.value)} className="input-dark"><option value="income">Ingreso</option><option value="expense">Salida / gasto</option><option value="withdrawal">Retiro</option></select></label>
+          <label><span className="label-dark">Categoria</span><select id="cash-movement-category" name="cash-movement-category" value={movement.category} onChange={(event) => setMovementField('category', event.target.value)} className="input-dark">{movementCategories.map((category) => <option key={category}>{category}</option>)}</select></label>
+          <label><span className="label-dark">Metodo de pago</span><select id="cash-movement-method" name="cash-movement-method" value={movement.method} onChange={(event) => setMovementField('method', event.target.value)} className="input-dark">{paymentMethods.map((method) => <option key={method}>{method}</option>)}</select></label>
+          <label><span className="label-dark">Fecha del movimiento</span><input id="cash-movement-date" name="cash-movement-date" type="date" value={movement.movementDate} onChange={(event) => setMovementField('movementDate', event.target.value)} className="input-dark" /></label>
+          <label><span className="label-dark">Monto</span><input id="cash-movement-amount" name="cash-movement-amount" type="number" value={movement.amount} onChange={(event) => setMovementField('amount', event.target.value)} className="input-dark" /></label>
+          <label className="manual-entry-wide"><span className="label-dark">Concepto</span><input id="cash-movement-concept" name="cash-movement-concept" value={movement.concept} onChange={(event) => setMovementField('concept', event.target.value)} className="input-dark" placeholder="Ej. Pago de internet, envio a cliente, compra operativa..." /></label>
+          <label><span className="label-dark">Destino / hacia donde fue</span><input id="cash-movement-destination" name="cash-movement-destination" value={movement.destination} onChange={(event) => setMovementField('destination', event.target.value)} className="input-dark" placeholder="Proveedor, cliente, sucursal..." /></label>
+          <label><span className="label-dark">Mensajero / responsable</span><input id="cash-movement-messenger" name="cash-movement-messenger" value={movement.messenger} onChange={(event) => setMovementField('messenger', event.target.value)} className="input-dark" placeholder="Nombre o ruta" /></label>
+          <label><span className="label-dark">Referencia</span><input id="cash-movement-reference" name="cash-movement-reference" value={movement.reference} onChange={(event) => setMovementField('reference', event.target.value)} className="input-dark" placeholder="Recibo, transferencia, comprobante" /></label>
+          <label><span className="label-dark">Canal</span><input id="cash-movement-channel" name="cash-movement-channel" value={movement.channel} onChange={(event) => setMovementField('channel', event.target.value)} className="input-dark" placeholder="Caja, banco, mensajeria..." /></label>
+          <label className="manual-entry-notes"><span className="label-dark">Notas</span><textarea id="cash-movement-notes" name="cash-movement-notes" value={movement.notes} onChange={(event) => setMovementField('notes', event.target.value)} className="input-dark min-h-20 resize-y" placeholder="Detalle del pago, quien autorizo, ruta, observaciones..." /></label>
+          <Button icon={Plus} variant="primary" className="self-end" type="submit">Registrar movimiento</Button>
         </form>
       </section>
 
-      <section className="printable-report panel rounded-lg p-4 sm:p-5">
+      <section className="printable-report">
         <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
           <div>
             <h3 className="font-display text-xl font-bold">Reporte de movimientos manuales</h3>
@@ -226,16 +326,28 @@ export function CashDesk() {
           </div>
           <div className="no-print flex flex-wrap gap-2">
             <select id="cash-period-filter" name="cash-period-filter" value={movementPeriod} onChange={(event) => setMovementPeriod(event.target.value)} className="input-dark max-w-40">{periodOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select>
+            <Button variant="primary" icon={Download} onClick={exportManualPdf}>PDF avanzado</Button>
             <Button variant="ghost" icon={FileSpreadsheet} onClick={exportManualCsv}>Excel</Button>
             <Button variant="ghost" icon={Printer} onClick={() => window.print()}>Imprimir</Button>
           </div>
         </div>
-        <div className="mb-4 grid gap-3 md:grid-cols-3">
-          <Total label="Ingresos manuales" value={manualSummary.income} />
-          <Total label="Salidas manuales" value={manualSummary.outflow} danger={manualSummary.outflow > 0} />
-          <Total label="Balance manual" value={manualSummary.net} danger={manualSummary.net < 0} />
+
+        <div className="movement-kpi-strip mb-4">
+          <div className="movement-kpi report-nav-green"><span>Ingresos manuales</span><strong>{currency.format(manualSummary.income)}</strong></div>
+          <div className="movement-kpi report-nav-red"><span>Salidas manuales</span><strong>{currency.format(manualSummary.outflow)}</strong></div>
+          <div className={`movement-kpi ${manualSummary.net < 0 ? 'report-nav-red' : 'report-nav-blue'}`}><span>Balance manual</span><strong>{currency.format(manualSummary.net)}</strong></div>
+          <div className="movement-kpi report-nav-violet"><span>Movimientos</span><strong>{manualSummary.count}</strong></div>
+          <div className="movement-kpi report-nav-cyan"><span>Promedio ingresos</span><strong>{currency.format(manualSummary.avgIncome)}</strong></div>
+          <div className="movement-kpi report-nav-amber"><span>Promedio salidas</span><strong>{currency.format(manualSummary.avgOutflow)}</strong></div>
         </div>
-        <DataTable data={manualMovements} columns={manualMovementColumns(removeMovement)} initialPageSize={15} emptyText="Sin movimientos manuales para este periodo." searchPlaceholder="Buscar categoria, concepto, referencia o metodo..." />
+
+        <div className="movement-breakdown-grid manual-breakdown-grid mb-4">
+          <ManualBreakdownBlock title="Por categoria" items={manualSummary.byCategory} />
+          <ManualBreakdownBlock title="Por metodo" items={manualSummary.byMethod} />
+          <ManualBreakdownBlock title="Por tipo" items={manualSummary.byType} />
+        </div>
+
+        <DataTable data={manualMovements} columns={manualMovementColumns(removeMovement)} initialPageSize={15} emptyText="Sin movimientos manuales para este periodo." searchPlaceholder="Buscar categoria, concepto, destino, mensajero, referencia o metodo..." />
       </section>
 
       <Modal
@@ -270,8 +382,38 @@ export function CashDesk() {
   )
 }
 
+function defaultManualMovement() {
+  return {
+    type: 'expense',
+    category: 'Gastos',
+    amount: '',
+    method: 'Efectivo',
+    concept: '',
+    reference: '',
+    destination: '',
+    messenger: '',
+    movementDate: todayIso(),
+    channel: 'Caja',
+    notes: '',
+  }
+}
+
 function Total({ label, value, danger }) {
   return <div className="rounded-lg p-4" style={{ border: '1px solid var(--line)', background: 'rgba(255,255,255,.04)' }}><p className="text-xs font-extrabold uppercase" style={{ color: 'rgba(255,255,255,.4)' }}>{label}</p><p className={`mt-1 font-display text-2xl font-bold ${danger ? 'text-red-300' : ''}`}>{currency.format(value || 0)}</p></div>
+}
+
+function ManualBreakdownBlock({ title, items }) {
+  const visibleItems = (items || []).slice(0, 6)
+  return (
+    <div className="movement-breakdown">
+      <p>{title}</p>
+      <div>
+        {visibleItems.length ? visibleItems.map((item) => (
+          <span key={item.label}>{item.label}<small>{currency.format(item.net)}</small></span>
+        )) : <em>Sin datos</em>}
+      </div>
+    </div>
+  )
 }
 
 const methodColumns = [
@@ -292,10 +434,12 @@ const movementColumns = (removeMovement) => [
 ]
 
 const manualMovementColumns = (removeMovement) => [
-  { header: 'Fecha', cell: ({ row }) => formatDate(row.original.createdAt) },
+  { header: 'Fecha', cell: ({ row }) => formatDate(row.original.movementDate || row.original.createdAt) },
   { header: 'Tipo', cell: ({ row }) => movementTypeLabel(row.original.type) },
   { header: 'Categoria', accessorKey: 'category' },
   { header: 'Metodo', accessorKey: 'method' },
+  { header: 'Destino', accessorKey: 'destination' },
+  { header: 'Mensajero', accessorKey: 'messenger' },
   { header: 'Concepto', cell: ({ row }) => row.original.concept || row.original.note || '' },
   { header: 'Referencia', accessorKey: 'reference' },
   { header: 'Monto', cell: ({ row }) => currency.format(signedManualAmount(row.original)) },
@@ -332,13 +476,50 @@ function signedManualAmount(movement) {
 }
 
 function summarizeManualMovements(movements) {
-  return movements.reduce((summary, movement) => {
+  const typeMap = new Map()
+  const categoryMap = new Map()
+  const methodMap = new Map()
+  const summary = movements.reduce((current, movement) => {
     const signed = signedManualAmount(movement)
-    if (signed >= 0) summary.income += signed
-    else summary.outflow += Math.abs(signed)
-    summary.net += signed
-    return summary
-  }, { income: 0, outflow: 0, net: 0 })
+    const positive = Math.max(0, signed)
+    const negative = Math.max(0, Math.abs(Math.min(0, signed)))
+    if (signed >= 0) {
+      current.income += signed
+      current.incomeCount += 1
+      current.maxIncome = Math.max(current.maxIncome, signed)
+    } else {
+      current.outflow += Math.abs(signed)
+      current.outflowCount += 1
+      current.maxOutflow = Math.max(current.maxOutflow, Math.abs(signed))
+    }
+    current.net += signed
+    current.count += 1
+    addManualBreakdown(typeMap, movementTypeLabel(movement.type), positive, negative, signed)
+    addManualBreakdown(categoryMap, movement.category || 'Sin categoria', positive, negative, signed)
+    addManualBreakdown(methodMap, movement.method || 'Sin metodo', positive, negative, signed)
+    return current
+  }, { income: 0, outflow: 0, net: 0, count: 0, incomeCount: 0, outflowCount: 0, avgIncome: 0, avgOutflow: 0, maxIncome: 0, maxOutflow: 0, byType: [], byCategory: [], byMethod: [] })
+
+  summary.avgIncome = summary.incomeCount ? summary.income / summary.incomeCount : 0
+  summary.avgOutflow = summary.outflowCount ? summary.outflow / summary.outflowCount : 0
+  summary.byType = manualBreakdownRows(typeMap)
+  summary.byCategory = manualBreakdownRows(categoryMap)
+  summary.byMethod = manualBreakdownRows(methodMap)
+  return summary
+}
+
+function addManualBreakdown(map, label, income, outflow, net) {
+  const key = label || 'Sin definir'
+  const item = map.get(key) || { label: key, count: 0, income: 0, outflow: 0, net: 0 }
+  item.count += 1
+  item.income += income
+  item.outflow += outflow
+  item.net += net
+  map.set(key, item)
+}
+
+function manualBreakdownRows(map) {
+  return Array.from(map.values()).sort((left, right) => Math.abs(right.net) - Math.abs(left.net))
 }
 
 function movementTypeLabel(type) {

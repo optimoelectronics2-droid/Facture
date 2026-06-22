@@ -42,6 +42,7 @@ const navGroups = [
       { to: '/facturacion', label: 'Facturas', icon: ReceiptText },
       { to: '/cotizaciones', label: 'Cotizaciones', icon: FileText },
       { to: '/conduces', label: 'Conduces', icon: Truck },
+      { to: '/movimientos-manuales', label: 'Mov. manuales', icon: Wallet },
     ],
   },
   {
@@ -97,10 +98,10 @@ export function AppShell() {
   const cash = useERPStore((state) => state.cashRegister)
 
   return (
-    <div className="h-screen overflow-hidden" style={{ background: 'var(--bg)' }}>
-      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_20%_10%,rgba(59,130,246,.16),transparent_30%),radial-gradient(circle_at_84%_18%,rgba(16,185,129,.10),transparent_28%)]" />
+    <div className="h-screen overflow-hidden" style={{ background: 'transparent' }}>
+      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_18%_0%,rgba(79,142,247,.18),transparent_32%),radial-gradient(circle_at_86%_8%,rgba(16,217,138,.12),transparent_30%)]" />
 
-      <aside className="erp-sidebar no-print group fixed inset-y-0 left-0 z-40 hidden w-[72px] border-r md:block hover:w-64" style={{ borderColor: 'var(--line)', background: 'var(--bg-sidebar)' }}>
+      <aside className="erp-sidebar no-print group fixed inset-y-0 left-0 z-40 hidden w-[72px] border-r md:block hover:w-64" style={{ borderColor: 'var(--line-strong)', background: 'var(--bg-sidebar)' }}>
         <div className="flex h-full flex-col overflow-y-auto p-3">
           <button onClick={() => navigate('/configuracion')} className="flex min-h-12 shrink-0 items-center gap-3 rounded-lg px-2 text-left hover:bg-white/[0.05]">
             <div className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-lg font-display text-xl font-extrabold shadow-lg" style={{ background: 'var(--color-nav)', boxShadow: '0 4px 12px rgba(59,130,246,.25)' }}>
@@ -125,7 +126,7 @@ export function AppShell() {
 
           <div className="mt-3 hidden rounded-lg border p-2 group-hover:block" style={{ borderColor: 'var(--line)', background: 'rgba(255,255,255,.035)' }}>
             <label className="flex items-center gap-2 text-[10px] font-extrabold uppercase tracking-widest" style={{ color: 'var(--text-tertiary)' }}><Building2 size={13} /> Empresa activa</label>
-            <select value={activeCompanyId} onChange={(event) => switchCompany(event.target.value)} className="input-dark mt-2 py-2 text-xs">
+            <select id="appshell-company" value={activeCompanyId} onChange={(event) => switchCompany(event.target.value)} className="input-dark mt-2 py-2 text-xs">
               {companies.map((item) => <option key={item.id} value={item.id}>{item.name || item.legalName || item.id}</option>)}
             </select>
             <button onClick={() => navigate('/configuracion')} className="mt-2 flex items-center gap-2 text-xs font-bold" style={{ color: 'rgb(191, 219, 254)' }}><Plus size={13} /> Gestionar empresas</button>
@@ -155,7 +156,7 @@ export function AppShell() {
       </aside>
 
       <main className="flex h-screen flex-col overflow-hidden md:pl-[72px]">
-        <header className="no-print z-20 h-[var(--header-h)] shrink-0 border-b px-3 backdrop-blur-xl sm:px-4 lg:px-6" style={{ borderColor: 'var(--line)', background: 'rgba(10,10,15,.78)' }}>
+        <header className="no-print z-20 h-[var(--header-h)] shrink-0 px-3 backdrop-blur-xl sm:px-4 lg:px-5" style={{ borderBottom: '1px solid var(--line-strong)', background: 'rgba(10,10,18,.92)' }}>
           <div className="flex h-full items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
               <Button variant="ghost" icon={Menu} className="px-3 md:hidden" onClick={() => setCommandOpen(true)} aria-label="Abrir busqueda" />
@@ -165,7 +166,7 @@ export function AppShell() {
               </div>
             </div>
             <div className="hidden items-center gap-2 md:flex">
-              <button onClick={() => setCommandOpen(true)} className="flex min-w-[220px] items-center gap-3 rounded-lg border px-3 py-2 text-left text-sm transition hover:bg-white/[0.07] xl:min-w-[300px]" style={{ borderColor: 'var(--line)', background: 'rgba(255,255,255,.045)', color: 'var(--text-secondary)' }}>
+              <button onClick={() => setCommandOpen(true)} className="flex min-w-[220px] items-center gap-3 rounded-lg border px-3 py-2 text-left text-sm transition hover:bg-white/[0.07] xl:min-w-[300px]" style={{ borderColor: 'var(--line)', background: 'var(--bg-input)', color: 'var(--text-secondary)' }}>
                 <Search size={16} />Buscar cliente, factura, IMEI, modulo<span className="ml-auto rounded border px-1.5 py-0.5 text-[10px]" style={{ borderColor: 'var(--line)', color: 'var(--text-tertiary)' }}>Ctrl K</span>
               </button>
               <Button variant="success" icon={FileText} onClick={() => navigate('/pos')}>Nueva factura</Button>
@@ -174,7 +175,7 @@ export function AppShell() {
         </header>
 
         <motion.div key={location.pathname} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.16 }} className="premium-scroll flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-[1880px] p-3 pb-24 sm:p-4 lg:p-6">
+          <div className="mx-auto w-full max-w-[1900px] p-4 pb-16 sm:p-5 lg:p-6">
             <Outlet />
           </div>
         </motion.div>
@@ -238,10 +239,10 @@ function CommandPalette() {
 
   return (
     <div className="fixed inset-0 z-[90] grid place-items-start bg-black/60 px-4 pt-20 backdrop-blur-sm" onClick={() => setOpen(false)}>
-      <div className="mx-auto w-full max-w-3xl overflow-hidden rounded-2xl border shadow-2xl backdrop-blur-2xl" onClick={(e) => e.stopPropagation()} style={{ borderColor: 'var(--line)', background: 'rgba(16,17,23,.95)', boxShadow: '0 25px 50px rgba(0,0,0,.55)' }}>
-        <div className="flex items-center gap-3 border-b px-4 py-4" style={{ borderColor: 'var(--line)', background: 'rgba(255,255,255,.035)' }}>
+      <div className="mx-auto w-full max-w-3xl overflow-hidden rounded-2xl shadow-2xl backdrop-blur-2xl" onClick={(e) => e.stopPropagation()} style={{ border: '1px solid var(--line-strong)', background: 'var(--bg-elevated)', boxShadow: '0 30px 64px rgba(0,0,0,.7)' }}>
+        <div className="flex items-center gap-3 px-4 py-4" style={{ borderBottom: '1px solid var(--line-strong)', background: 'var(--bg-surface)' }}>
           <Command size={18} style={{ color: 'rgb(147, 197, 253)' }} />
-          <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} className="w-full bg-transparent text-sm font-semibold outline-none" placeholder="Buscar facturas, clientes, productos, caja, compras, inventario..." style={{ color: 'white' }} />
+          <input id="appshell-search" autoFocus value={query} onChange={(e) => setQuery(e.target.value)} className="w-full bg-transparent text-sm font-semibold outline-none" placeholder="Buscar facturas, clientes, productos, caja, compras, inventario..." style={{ color: 'white' }} />
           <span className="hidden rounded-md border px-2 py-1 text-[10px] font-extrabold uppercase sm:inline" style={{ borderColor: 'var(--line)', color: 'var(--text-tertiary)' }}>Esc</span>
         </div>
         <div className="premium-scroll max-h-[68vh] overflow-auto p-3">
@@ -258,7 +259,7 @@ function CommandPalette() {
           ) : null}
           <div className="grid gap-2">
             {results.map((item) => (
-              <button key={item.id} type="button" onClick={() => go(item.path, item.meta || item.title)} className="group flex min-h-16 items-center justify-between gap-4 rounded-xl border px-3 py-2 text-left transition hover:-translate-y-0.5 hover:shadow-lg" style={{ borderColor: 'var(--line)', background: 'rgba(255,255,255,.032)' }}>
+              <button key={item.id} type="button" onClick={() => go(item.path, item.meta || item.title)} className="group flex min-h-16 items-center justify-between gap-4 rounded-xl border px-3 py-2 text-left transition hover:-translate-y-0.5 hover:shadow-lg" style={{ borderColor: 'var(--line)', background: 'var(--bg-surface)' }}>
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="rounded-md border px-2 py-1 text-[10px] font-extrabold uppercase" style={{ borderColor: 'var(--line)', background: 'rgba(255,255,255,.04)', color: 'rgba(191, 219, 254, .8)' }}>{item.kind}</span>

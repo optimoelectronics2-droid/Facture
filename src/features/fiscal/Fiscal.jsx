@@ -16,7 +16,7 @@ export function Fiscal() {
         <Tile icon={FileSpreadsheet} label="607 ventas" value={buckets.taxed.count + buckets.mixed.count} />
         <Tile icon={AlertTriangle} label="Secuencias bajas" value={sequences.filter((s) => s.limit - s.next < 20).length} />
       </section>
-      <section className="panel rounded-lg p-5">
+      <section>
         <div className="mb-4 flex items-center justify-between">
           <div>
             <h2 className="font-display text-2xl font-bold">Modulo fiscal RD</h2>

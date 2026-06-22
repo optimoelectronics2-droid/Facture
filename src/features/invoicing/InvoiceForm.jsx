@@ -302,7 +302,7 @@ export function InvoiceForm({ initialInvoice, duplicateOf, onDone }) {
       </aside>
 
       <main className="min-w-0 space-y-4">
-        <section className="module-surface p-4 sm:p-5">
+        <section>
           <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
             <div>
               <h2 className="font-display text-2xl font-bold">Facturacion rapida</h2>
@@ -354,7 +354,7 @@ export function InvoiceForm({ initialInvoice, duplicateOf, onDone }) {
         </section>
       </main>
 
-      <aside className="panel h-fit rounded-lg p-5 xl:sticky xl:top-24">
+      <aside className="h-fit xl:sticky xl:top-24">
         <p className="text-xs font-extrabold uppercase text-blue-200/80">Resumen</p>
         <div className="mt-4 space-y-2">
           <Line label="Subtotal" value={totals.subtotal} />

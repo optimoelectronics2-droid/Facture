@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import { Bar, Doughnut, Line as LineChart } from 'react-chartjs-2'
-import { CalendarDays, ChevronDown, Download, Filter, Printer, Search, FileText } from 'lucide-react'
+import { ArrowUpRight, CalendarDays, ChevronDown, Download, Filter, Printer, Search, FileText } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { DataTable } from '../../components/ui/DataTable'
 import { useERPStore } from '../../store/useERPStore'
@@ -11,6 +11,52 @@ import { applyQuickRange, defaultReportFilters, describeFilters, filterReportRow
 import { currency, formatDate } from '../../lib/formatters'
 
 const EMPTY_REPORT = createEmptyReportStats()
+const reportAreas = [
+  { key: 'overview', label: 'Resumen ejecutivo', accent: 'green' },
+  { key: 'grouping', label: 'Agrupacion y acumulados', accent: 'blue' },
+  { key: 'products', label: 'Productos y clientes', accent: 'green' },
+  { key: 'cashCredit', label: 'Desglose Contado / Credito', accent: 'amber' },
+  { key: 'payments', label: 'Pagos e inventario', accent: 'cyan' },
+  { key: 'sheets', label: 'Hojas fiscales separadas', accent: 'violet' },
+  { key: 'kardex', label: 'Kardex e historial financiero', accent: 'pink' },
+  { key: 'exclusions', label: 'Exclusiones del motor', accent: 'red' },
+]
+
+function fiscalAccent(modeValue) {
+  if (modeValue === invoiceModes.NO_TAX) return 'green'
+  if (modeValue === invoiceModes.MIXED) return 'amber'
+  return 'blue'
+}
+
+function sheetNumber(modeValue) {
+  if (modeValue === invoiceModes.NO_TAX) return '02'
+  if (modeValue === invoiceModes.MIXED) return '03'
+  return '01'
+}
+
+function FiscalSheetLauncher({ groups, onOpen }) {
+  return (
+    <div className="fiscal-sheet-launcher">
+      {groups.map((group) => (
+        <button key={group.mode} type="button" onClick={() => onOpen(group.mode)} className={`fiscal-sheet-button report-nav-${fiscalAccent(group.mode)}`}>
+          <span className="fiscal-sheet-button-main">
+            <span className="report-nav-index">{sheetNumber(group.mode)}</span>
+            <span className="report-nav-copy">
+              <strong>{group.title}</strong>
+              <small>{group.description}</small>
+            </span>
+          </span>
+          <span className="fiscal-sheet-button-metrics">
+            <em>{group.bucket?.count || 0} facturas</em>
+            <em>{currency.format(group.bucket?.total || 0)}</em>
+            <em>{(group.items || []).length} productos</em>
+          </span>
+          <span className="report-nav-action">Abrir desglose <ArrowUpRight size={15} /></span>
+        </button>
+      ))}
+    </div>
+  )
+}
 
 export function Reports() {
   const company = useERPStore((state) => state.company)
@@ -21,9 +67,11 @@ export function Reports() {
   const [mode, setMode] = useState('all')
   const [profitPeriod, setProfitPeriod] = useState('filtered')
   const [periodTable, setPeriodTable] = useState('monthly')
-  const [filters, setFilters] = useState(defaultReportFilters)
+  const [filters, setFilters] = useState(() => applyQuickRange(defaultReportFilters(), 'today'))
   const [showFilters, setShowFilters] = useState(false)
   const [showDetail, setShowDetail] = useState({})
+  const [activeArea, setActiveArea] = useState('overview')
+  const [selectedSheetMode, setSelectedSheetMode] = useState('all')
   const report = reportStats?.version ? reportStats : EMPTY_REPORT
   const inventory = inventoryReports || {}
 
@@ -34,7 +82,12 @@ export function Reports() {
   const filteredInvoices = useMemo(() => filterReportRows(allInvoices, filters, { searchableFields: ['number', 'ncf', 'customerName', 'paymentMethod', 'seller', 'status'] }), [allInvoices, filters])
   const filteredItems = useMemo(() => filterReportRows(allItems, filters, { searchableFields: ['factura', 'cliente', 'producto', 'sku', 'modelo', 'seriales', 'gravado'] }), [allItems, filters])
   const filteredHistory = useMemo(() => filterReportRows(report.financialHistory || [], filters, { searchableFields: ['type', 'number', 'customer', 'status', 'description'] }), [report, filters])
-  const reportGroups = useMemo(() => buildReportGroups(report.fiscalGroups || [], filteredInvoices, filteredItems), [report, filteredInvoices, filteredItems])
+  const fiscalSheetGroups = useMemo(() => buildReportGroups(report.fiscalGroups || [], filteredInvoices, filteredItems), [report, filteredInvoices, filteredItems])
+  const visibleReportGroups = useMemo(() => {
+    if (!showDetail.sheets) return []
+    if (selectedSheetMode === 'all') return []
+    return fiscalSheetGroups.filter((group) => group.mode === selectedSheetMode || group.id === selectedSheetMode)
+  }, [showDetail.sheets, fiscalSheetGroups, selectedSheetMode])
   const buckets = useMemo(() => buildBuckets(filteredInvoices), [filteredInvoices])
   const filtered = useMemo(() => (mode === 'all' ? filteredInvoices : filteredInvoices.filter((invoice) => invoice.mode === mode)), [filteredInvoices, mode])
   const groupedRows = useMemo(() => groupReportRows(filteredInvoices, filters.groupBy), [filteredInvoices, filters.groupBy])
@@ -111,7 +164,31 @@ export function Reports() {
     setFilters((state) => ({ ...state, [key]: value, quickRange: key.startsWith('date') || key.startsWith('time') || key === 'exactDate' ? 'custom' : state.quickRange }))
   }
   function setQuickRange(quickRange) { setFilters((state) => applyQuickRange(state, quickRange)) }
-  function toggleDetail(key) { setShowDetail((s) => ({ ...s, [key]: !s[key] })) }
+  function toggleDetail(key) {
+    setActiveArea(key)
+    setShowDetail((s) => ({ ...s, [key]: !s[key] }))
+  }
+  function scrollToReportTarget(targetId) {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+    })
+  }
+  function openReportArea(key, targetId = `report-area-${key}`) {
+    setActiveArea(key)
+    setShowDetail({ [key]: true })
+    scrollToReportTarget(targetId)
+  }
+  function jumpToArea(key) {
+    if (key === 'sheets') setSelectedSheetMode('all')
+    openReportArea(key)
+  }
+  function focusReportPart(key, targetId) {
+    openReportArea(key, targetId)
+  }
+  function openFiscalSheet(modeValue = 'all') {
+    setSelectedSheetMode(modeValue)
+    openReportArea('sheets', modeValue === 'all' ? 'report-area-sheets' : `report-sheet-${sheetIdFromMode(modeValue)}`)
+  }
 
   const downloadProfessionalPdf = useCallback(async () => {
     try {
@@ -121,6 +198,7 @@ export function Reports() {
   }, [company, reportStats])
 
   function exportExcel() {
+    const exportReportGroups = buildReportGroups(report.fiscalGroups || [], filteredInvoices, filteredItems)
     downloadCsvWorkbook('trifusion-reportes-avanzados.csv', [
       { name: 'Resumen', rows: [summaryRow(profitReport, filters)] },
       { name: 'Agrupacion', rows: groupedRows },
@@ -134,7 +212,7 @@ export function Reports() {
       { name: 'Historial financiero', rows: filteredHistory },
       { name: 'Invalidos', rows: report.invalidDocuments || [] },
       { name: 'Duplicados', rows: report.duplicateDocuments || [] },
-      ...reportGroups.flatMap((group) => [
+      ...exportReportGroups.flatMap((group) => [
         { name: `${group.sheetName} facturas`, rows: (group.invoices || []).map(invoiceToExcelRow) },
         { name: `${group.sheetName} productos`, rows: group.items || [] },
       ]),
@@ -157,12 +235,12 @@ export function Reports() {
 
   async function downloadPdfGroup(modeValue) {
     const { downloadFiscalReportPdf } = await import('../../services/fiscalReportPdf')
-    const group = reportGroups.find((item) => item.mode === modeValue)
+    const group = buildReportGroups(report.fiscalGroups || [], filteredInvoices, filteredItems).find((item) => item.mode === modeValue)
     if (group) await downloadFiscalReportPdf({ company, group: withPdfMeta(group) })
   }
   async function downloadAllPdfs() {
     const { downloadFiscalReportPdf } = await import('../../services/fiscalReportPdf')
-    for (const group of reportGroups) await downloadFiscalReportPdf({ company, group: withPdfMeta(group) })
+    for (const group of buildReportGroups(report.fiscalGroups || [], filteredInvoices, filteredItems)) await downloadFiscalReportPdf({ company, group: withPdfMeta(group) })
   }
 
   function export607() {
@@ -174,18 +252,20 @@ export function Reports() {
 
   return (
     <div className="space-y-5">
-      <div className="printable-report report-print-area space-y-5">
-        <section className="module-surface p-5 sm:p-6">
+      <div className="printable-report report-print-area space-y-4">
+        <div className="module-header">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
             <div>
-              <p className="text-xs font-extrabold uppercase" style={{ color: 'var(--color-analytics)' }}>Motor de reportes</p>
-              <h2 className="font-display text-3xl font-bold">Reportes ejecutivos</h2>
-              <p className="mt-1 max-w-4xl text-sm" style={{ color: 'var(--text-secondary)' }}>Ultima reconstruccion: {formatDate(report.generatedAt)}</p>
+              <p className="module-header-eyebrow">Motor de reportes</p>
+              <h2 className="module-header-title">Reportes ejecutivos</h2>
+              <p className="module-header-desc">Ultima reconstruccion: {formatDate(report.generatedAt)}</p>
             </div>
             <div className="no-print flex flex-wrap gap-2">
               <Button variant="primary" icon={FileText} onClick={downloadProfessionalPdf}>Reporte ejecutivo PDF</Button>
               <Button variant="ghost" icon={Printer} onClick={() => window.print()}>Imprimir</Button>
-              <Button variant="ghost" icon={Download} onClick={() => downloadPdfGroup(invoiceModes.NO_TAX)}>Ventas sin ITBIS</Button>
+              <Button variant="ghost" icon={ArrowUpRight} onClick={() => openFiscalSheet(invoiceModes.TAXED)}>VENTAS CON ITBIS</Button>
+              <Button variant="ghost" icon={ArrowUpRight} onClick={() => openFiscalSheet(invoiceModes.NO_TAX)}>VENTAS SIN ITBIS</Button>
+              <Button variant="ghost" icon={ArrowUpRight} onClick={() => openFiscalSheet(invoiceModes.MIXED)}>VENTAS MIXTAS</Button>
               <Button variant="ghost" icon={Download} onClick={exportExcel}>Excel</Button>
               <Button variant="ghost" icon={Download} onClick={export607}>607</Button>
             </div>
@@ -197,34 +277,10 @@ export function Reports() {
             <MetricCardReport label="Ventas filtradas" value={currency.format(totalGeneral)} accent="blue" />
             <MetricCardReport label="Facturas analizadas" value={report.source?.validInvoiceCount || 0} accent="violet" raw />
           </div>
-        </section>
+        </div>
 
-        <section className="module-surface p-4 sm:p-5">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs font-extrabold uppercase" style={{ color: 'var(--color-income)' }}>Rentabilidad</p>
-              <h3 className="font-display text-2xl font-bold">Resumen de ganancias {profitReport.label}</h3>
-            </div>
-            <div className="no-print flex items-center gap-2">
-              <select value={profitPeriod} onChange={(e) => setProfitPeriod(e.target.value)} className="input-dark w-40">
-                <option value="filtered">Periodo filtrado</option>
-                <option value="historical">Historico</option>
-              </select>
-              <Button variant="primary" icon={Download} onClick={downloadProfitPdf}>PDF</Button>
-            </div>
-          </div>
-          <div className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
-            <KpiBlock label="Ventas brutas" value={currency.format(profitReport.grossRevenue)} />
-            <KpiBlock label="Devoluciones" value={currency.format(profitReport.creditTotal)} />
-            <KpiBlock label="Ventas netas" value={currency.format(profitReport.netRevenue)} />
-            <KpiBlock label="ITBIS" value={currency.format(profitReport.tax)} />
-            <KpiBlock label="Costos" value={currency.format(profitReport.cost)} />
-            <KpiBlock label="Ganancia neta" value={currency.format(profitReport.netProfit)} accent />
-          </div>
-        </section>
-
-        <section className="module-surface no-print p-4 sm:p-5">
-          <button type="button" onClick={() => setShowFilters((s) => !s)} className="flex w-full items-center justify-between gap-3 text-left">
+        <section className="section-card no-print">
+          <button type="button" onClick={() => setShowFilters((s) => !s)} className={`quick-filter-btn flex w-full items-center justify-between gap-3 text-left${showFilters ? ' active' : ''}`}>
             <div className="flex items-center gap-2">
               <Filter size={16} style={{ color: 'var(--color-analytics)' }} />
               <span className="text-xs font-extrabold uppercase tracking-widest" style={{ color: 'var(--text-secondary)' }}>Filtros avanzados</span>
@@ -235,49 +291,125 @@ export function Reports() {
           {showFilters ? (
             <div className="mt-4 space-y-3">
               <div className="grid gap-3 xl:grid-cols-[1.2fr_.8fr_.8fr_.8fr_.8fr_.8fr]">
-                <label className="rounded-lg border px-3 py-2" style={{ borderColor: 'var(--line)', background: 'var(--bg-input)' }}>
+                <label className="module-search-bar">
                   <span className="label-dark flex items-center gap-2"><Search size={14} /> Busqueda</span>
-                  <input value={filters.query} onChange={(e) => setFilter('query', e.target.value)} className="w-full bg-transparent text-sm outline-none" placeholder="Factura, cliente, producto, NCF, serial..." />
+                  <input id="report-query" value={filters.query} onChange={(e) => setFilter('query', e.target.value)} className="w-full bg-transparent text-sm outline-none" placeholder="Factura, cliente, producto, NCF, serial..." />
                 </label>
-                <label><span className="label-dark">Periodo</span><select value={filters.quickRange} onChange={(e) => setQuickRange(e.target.value)} className="input-dark">{quickDateRanges.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
-                <label><span className="label-dark">Fecha inicio</span><input type="date" value={filters.dateFrom} onChange={(e) => setFilter('dateFrom', e.target.value)} className="input-dark" /></label>
-                <label><span className="label-dark">Fecha fin</span><input type="date" value={filters.dateTo} onChange={(e) => setFilter('dateTo', e.target.value)} className="input-dark" /></label>
-                <label><span className="label-dark">Hora inicio</span><input type="time" value={filters.timeFrom} onChange={(e) => setFilter('timeFrom', e.target.value)} className="input-dark" /></label>
-                <label><span className="label-dark">Hora fin</span><input type="time" value={filters.timeTo} onChange={(e) => setFilter('timeTo', e.target.value)} className="input-dark" /></label>
+                <label><span className="label-dark">Periodo</span><select id="report-quick-range" value={filters.quickRange} onChange={(e) => setQuickRange(e.target.value)} className="input-dark">{quickDateRanges.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
+                <label><span className="label-dark">Fecha inicio</span><input id="report-date-from" type="date" value={filters.dateFrom} onChange={(e) => setFilter('dateFrom', e.target.value)} className="input-dark" /></label>
+                <label><span className="label-dark">Fecha fin</span><input id="report-date-to" type="date" value={filters.dateTo} onChange={(e) => setFilter('dateTo', e.target.value)} className="input-dark" /></label>
+                <label><span className="label-dark">Hora inicio</span><input id="report-time-from" type="time" value={filters.timeFrom} onChange={(e) => setFilter('timeFrom', e.target.value)} className="input-dark" /></label>
+                <label><span className="label-dark">Hora fin</span><input id="report-time-to" type="time" value={filters.timeTo} onChange={(e) => setFilter('timeTo', e.target.value)} className="input-dark" /></label>
               </div>
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
-                <label><span className="label-dark flex items-center gap-2"><CalendarDays size={14} /> Dia exacto</span><input type="date" value={filters.exactDate} onChange={(e) => setFilter('exactDate', e.target.value)} className="input-dark" /></label>
-                <label><span className="label-dark">Mes</span><input type="month" value={filters.month} onChange={(e) => setFilter('month', e.target.value)} className="input-dark" /></label>
-                <label><span className="label-dark">Ano</span><input type="number" value={filters.year} onChange={(e) => setFilter('year', e.target.value)} className="input-dark" /></label>
-                <label><span className="label-dark">Monto min</span><input type="number" value={filters.amountMin} onChange={(e) => setFilter('amountMin', e.target.value)} className="input-dark" /></label>
-                <label><span className="label-dark">Monto max</span><input type="number" value={filters.amountMax} onChange={(e) => setFilter('amountMax', e.target.value)} className="input-dark" /></label>
-                <label><span className="label-dark">Estado</span><select value={filters.status} onChange={(e) => setFilter('status', e.target.value)} className="input-dark"><option value="all">Todos</option><option value="paid">Pagada</option><option value="credit">Credito</option><option value="voided">Anulada</option><option value="issued">Emitida</option></select></label>
-                <label><span className="label-dark">Agrupar por</span><select value={filters.groupBy} onChange={(e) => setFilter('groupBy', e.target.value)} className="input-dark">{groupOptions.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
+                <label><span className="label-dark flex items-center gap-2"><CalendarDays size={14} /> Dia exacto</span><input id="report-exact-date" type="date" value={filters.exactDate} onChange={(e) => setFilter('exactDate', e.target.value)} className="input-dark" /></label>
+                <label><span className="label-dark">Mes</span><input id="report-month" type="month" value={filters.month} onChange={(e) => setFilter('month', e.target.value)} className="input-dark" /></label>
+                <label><span className="label-dark">Ano</span><input id="report-year" type="number" value={filters.year} onChange={(e) => setFilter('year', e.target.value)} className="input-dark" /></label>
+                <label><span className="label-dark">Monto min</span><input id="report-amount-min" type="number" value={filters.amountMin} onChange={(e) => setFilter('amountMin', e.target.value)} className="input-dark" /></label>
+                <label><span className="label-dark">Monto max</span><input id="report-amount-max" type="number" value={filters.amountMax} onChange={(e) => setFilter('amountMax', e.target.value)} className="input-dark" /></label>
+                <label><span className="label-dark">Estado</span><select id="report-status" value={filters.status} onChange={(e) => setFilter('status', e.target.value)} className="input-dark"><option value="all">Todos</option><option value="paid">Pagada</option><option value="credit">Credito</option><option value="voided">Anulada</option><option value="issued">Emitida</option></select></label>
+                <label><span className="label-dark">Agrupar por</span><select id="report-group-by" value={filters.groupBy} onChange={(e) => setFilter('groupBy', e.target.value)} className="input-dark">{groupOptions.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
               </div>
             </div>
           ) : null}
         </section>
 
-        <section className="grid gap-4 xl:grid-cols-3">
-          <Bucket title="Facturas con ITBIS" bucket={buckets.taxed} />
-          <Bucket title="Facturas sin ITBIS" bucket={buckets.noTax} noTax />
-          <Bucket title="Facturas mixtas" bucket={buckets.mixed} />
+        <section className="report-nav-board no-print">
+          <div className="report-nav-head">
+            <div>
+              <p className="module-header-eyebrow">Navegacion interna</p>
+              <h3 className="font-display text-2xl font-bold">Areas del reporte</h3>
+            </div>
+            <span>{filteredInvoices.length} registro(s) filtrados</span>
+          </div>
+          <div className="report-nav-grid">
+            {reportAreas.map((area) => {
+              const meta = detailMeta(area.label)
+              const open = Boolean(showDetail[area.key])
+              const active = activeArea === area.key
+              return (
+                <button
+                  key={area.key}
+                  type="button"
+                  onClick={() => jumpToArea(area.key)}
+                  className={`report-nav-card report-nav-${area.accent} ${active ? 'active' : ''}`}
+                >
+                  <span className="report-nav-index">{meta.index}</span>
+                  <span className="report-nav-copy">
+                    <strong>{area.label}</strong>
+                    <small>{meta.description}</small>
+                  </span>
+                  <span className="report-nav-action">
+                    {open ? 'Abierto' : 'Abrir'}
+                    <ArrowUpRight size={15} />
+                  </span>
+                </button>
+              )
+            })}
+          </div>
         </section>
 
-        <section className="grid gap-5 xl:grid-cols-3">
-          <ChartPanel title="Ventas por tipo fiscal"><Bar data={barData} options={chartOptions} /></ChartPanel>
-          <ChartPanel title="ITBIS y ganancia mensual"><LineChart data={monthlyData} options={chartOptions} /></ChartPanel>
-          <ChartPanel title="Distribucion fiscal"><Doughnut data={distributionData} options={doughnutOptions} /></ChartPanel>
-        </section>
+        <DetailSection id="report-area-overview" label="Resumen ejecutivo" open={showDetail['overview']} onToggle={() => toggleDetail('overview')}>
+          <SectionActions actions={[
+            { label: 'VENTAS CON ITBIS', accent: 'blue', onClick: () => openFiscalSheet(invoiceModes.TAXED) },
+            { label: 'VENTAS SIN ITBIS', accent: 'green', onClick: () => openFiscalSheet(invoiceModes.NO_TAX) },
+            { label: 'VENTAS MIXTAS', accent: 'violet', onClick: () => openFiscalSheet(invoiceModes.MIXED) },
+            { label: 'Ganancias', accent: 'amber', onClick: () => focusReportPart('overview', 'report-profit-summary') },
+          ]} />
+          <div className="report-overview-stack">
+            <section id="report-profit-summary" className="section-card">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-extrabold uppercase" style={{ color: 'var(--color-income)' }}>Rentabilidad</p>
+                  <h3 className="font-display text-2xl font-bold">Resumen de ganancias {profitReport.label}</h3>
+                </div>
+                <div className="no-print flex items-center gap-2">
+                  <select id="report-profit-period" value={profitPeriod} onChange={(e) => setProfitPeriod(e.target.value)} className="input-dark w-40">
+                    <option value="filtered">Periodo filtrado</option>
+                    <option value="historical">Historico</option>
+                  </select>
+                  <Button variant="primary" icon={Download} onClick={downloadProfitPdf}>PDF</Button>
+                </div>
+              </div>
+              <div className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+                <KpiBlock label="Ventas brutas" value={currency.format(profitReport.grossRevenue)} />
+                <KpiBlock label="Devoluciones" value={currency.format(profitReport.creditTotal)} />
+                <KpiBlock label="Ventas netas" value={currency.format(profitReport.netRevenue)} />
+                <KpiBlock label="ITBIS" value={currency.format(profitReport.tax)} />
+                <KpiBlock label="Costos" value={currency.format(profitReport.cost)} />
+                <KpiBlock label="Ganancia neta" value={currency.format(profitReport.netProfit)} accent />
+              </div>
+            </section>
+            <section className="grid gap-4 xl:grid-cols-3">
+              <Bucket title="Facturas con ITBIS" bucket={buckets.taxed} />
+              <Bucket title="Facturas sin ITBIS" bucket={buckets.noTax} noTax />
+              <Bucket title="Facturas mixtas" bucket={buckets.mixed} />
+            </section>
+            <section className="grid gap-5 xl:grid-cols-3">
+              <ChartPanel title="Ventas por tipo fiscal"><Bar data={barData} options={chartOptions} /></ChartPanel>
+              <ChartPanel title="ITBIS y ganancia mensual"><LineChart data={monthlyData} options={chartOptions} /></ChartPanel>
+              <ChartPanel title="Distribucion fiscal"><Doughnut data={distributionData} options={doughnutOptions} /></ChartPanel>
+            </section>
+          </div>
+        </DetailSection>
 
-        <DetailSection label="Agrupacion y acumulados" open={showDetail['grouping']} onToggle={() => toggleDetail('grouping')}>
+        <DetailSection id="report-area-grouping" label="Agrupacion y acumulados" open={showDetail['grouping']} onToggle={() => toggleDetail('grouping')}>
+          <SectionActions actions={[
+            { label: 'Diario', accent: 'blue', onClick: () => { setPeriodTable('daily'); focusReportPart('grouping', 'report-period-table') } },
+            { label: 'Semanal', accent: 'cyan', onClick: () => { setPeriodTable('weekly'); focusReportPart('grouping', 'report-period-table') } },
+            { label: 'Mensual', accent: 'violet', onClick: () => { setPeriodTable('monthly'); focusReportPart('grouping', 'report-period-table') } },
+            { label: 'Anual', accent: 'green', onClick: () => { setPeriodTable('annual'); focusReportPart('grouping', 'report-period-table') } },
+          ]} />
           <div className="grid gap-5 xl:grid-cols-[.75fr_1.25fr]">
+            <div id="report-grouped-table">
             <Panel title={`Agrupacion por ${filters.groupBy}`}>
               <DataTable data={groupedRows} columns={groupColumns} emptyText="No hay datos agrupados." initialPageSize={12} />
             </Panel>
+            </div>
+            <div id="report-period-table">
             <Panel title="Acumulados por fecha">
               <div className="no-print mb-3 flex justify-end">
-                <select value={periodTable} onChange={(e) => setPeriodTable(e.target.value)} className="input-dark w-36">
+                <select id="report-period-table" value={periodTable} onChange={(e) => setPeriodTable(e.target.value)} className="input-dark w-36">
                   <option value="daily">Diario</option>
                   <option value="weekly">Semanal</option>
                   <option value="monthly">Mensual</option>
@@ -286,22 +418,38 @@ export function Reports() {
               </div>
               <DataTable data={periodRows} columns={periodColumns} emptyText="No hay acumulados." initialPageSize={12} />
             </Panel>
+            </div>
           </div>
         </DetailSection>
 
-        <DetailSection label="Productos y clientes" open={showDetail['products']} onToggle={() => toggleDetail('products')}>
+        <DetailSection id="report-area-products" label="Productos y clientes" open={showDetail['products']} onToggle={() => toggleDetail('products')}>
+          <SectionActions actions={[
+            { label: 'Productos vendidos', accent: 'green', onClick: () => focusReportPart('products', 'report-products-table') },
+            { label: 'Clientes frecuentes', accent: 'cyan', onClick: () => focusReportPart('products', 'report-customers-table') },
+            { label: 'Ranking ganancia', accent: 'amber', onClick: () => focusReportPart('products', 'report-products-table') },
+          ]} />
           <div className="grid gap-5 xl:grid-cols-2">
+            <div id="report-products-table">
             <Panel title="Productos mas vendidos">
               <DataTable data={profitReport.topProducts} columns={productColumns} emptyText="Sin datos." initialPageSize={10} />
             </Panel>
+            </div>
+            <div id="report-customers-table">
             <Panel title="Clientes mas frecuentes">
               <DataTable data={report.frequentCustomers || []} columns={customerColumns} emptyText="Sin datos." initialPageSize={10} />
             </Panel>
+            </div>
           </div>
         </DetailSection>
 
-        <DetailSection label="Desglose Contado / Credito" open={showDetail['cashCredit']} onToggle={() => toggleDetail('cashCredit')}>
+        <DetailSection id="report-area-cashCredit" label="Desglose Contado / Credito" open={showDetail['cashCredit']} onToggle={() => toggleDetail('cashCredit')}>
+          <SectionActions actions={[
+            { label: 'Resumen contado', accent: 'green', onClick: () => focusReportPart('cashCredit', 'report-cash-credit-summary') },
+            { label: 'Ventas a credito', accent: 'amber', onClick: () => focusReportPart('cashCredit', 'report-credit-detail') },
+            { label: 'Pendientes', accent: 'red', onClick: () => focusReportPart('cashCredit', 'report-credit-detail') },
+          ]} />
           <div className="grid gap-5 xl:grid-cols-2">
+            <div id="report-cash-credit-summary">
             <Panel title="Resumen Contado vs Credito">
               <div className="grid gap-3 sm:grid-cols-3">
                 <KpiBlock label="Ventas Contado" value={currency.format(cashCreditSplitData.cashTotal)} accent />
@@ -320,17 +468,28 @@ export function Reports() {
                 <KpiBlock label="Deuda Promedio" value={currency.format(cashCreditSplitData.creditCount > 0 ? cashCreditSplitData.creditPending / cashCreditSplitData.creditCount : 0)} />
               </div>
             </Panel>
+            </div>
+            <div id="report-credit-detail">
             <Panel title="Detalle de Ventas a Credito">
               <DataTable data={creditInvoiceDetails} columns={creditInvoiceColumns} emptyText="No hay facturas a credito." initialPageSize={10} />
             </Panel>
+            </div>
           </div>
         </DetailSection>
 
-        <DetailSection label="Pagos e inventario" open={showDetail['payments']} onToggle={() => toggleDetail('payments')}>
+        <DetailSection id="report-area-payments" label="Pagos e inventario" open={showDetail['payments']} onToggle={() => toggleDetail('payments')}>
+          <SectionActions actions={[
+            { label: 'Metodos de pago', accent: 'green', onClick: () => focusReportPart('payments', 'report-payment-methods') },
+            { label: 'Inventario valorizado', accent: 'cyan', onClick: () => focusReportPart('payments', 'report-inventory-value') },
+            { label: 'Costos', accent: 'violet', onClick: () => focusReportPart('payments', 'report-inventory-value') },
+          ]} />
           <div className="grid gap-5 xl:grid-cols-2">
+            <div id="report-payment-methods">
             <Panel title="Ingresos por metodo de pago">
               <DataTable data={groupReportRows(filteredInvoices, 'payment')} columns={paymentGroupColumns} emptyText="Sin pagos." initialPageSize={10} />
             </Panel>
+            </div>
+            <div id="report-inventory-value">
             <Panel title="Inventario valorizado">
               <div className="mb-3 grid gap-3 sm:grid-cols-3">
                 <KpiBlock label="Costo total" value={currency.format(inventory.valuation?.totalCost || report.inventoryValuation?.totalCost || 0)} />
@@ -338,56 +497,121 @@ export function Reports() {
               </div>
               <DataTable data={inventory.valuation?.products || report.inventoryValuation?.products || []} columns={inventoryColumns} emptyText="Sin inventario." initialPageSize={10} />
             </Panel>
+            </div>
           </div>
         </DetailSection>
 
 
 
-        <DetailSection label="Hojas fiscales separadas" open={showDetail['sheets']} onToggle={() => toggleDetail('sheets')}>
-          <div className="space-y-5">
-            {reportGroups.map((group) => <ReportSheet key={group.mode} group={group} onDownload={() => downloadPdfGroup(group.mode)} />)}
-          </div>
+        <DetailSection id="report-area-sheets" label="Hojas fiscales separadas" open={showDetail['sheets']} onToggle={() => toggleDetail('sheets')}>
+          <SectionActions actions={[
+            { label: 'Todas', accent: 'violet', onClick: () => openFiscalSheet('all') },
+            { label: 'Con ITBIS', accent: 'blue', onClick: () => openFiscalSheet(invoiceModes.TAXED) },
+            { label: 'Sin ITBIS', accent: 'green', onClick: () => openFiscalSheet(invoiceModes.NO_TAX) },
+            { label: 'Mixtas', accent: 'amber', onClick: () => openFiscalSheet(invoiceModes.MIXED) },
+          ]} />
+          {selectedSheetMode === 'all' ? (
+            <FiscalSheetLauncher groups={fiscalSheetGroups} onOpen={openFiscalSheet} />
+          ) : (
+            <div className="space-y-5">
+              {visibleReportGroups.map((group) => <ReportSheet key={group.mode} group={group} onBack={() => openFiscalSheet('all')} onDownload={() => downloadPdfGroup(group.mode)} />)}
+            </div>
+          )}
         </DetailSection>
 
-        <DetailSection label="Kardex e historial financiero" open={showDetail['kardex']} onToggle={() => toggleDetail('kardex')}>
+        <DetailSection id="report-area-kardex" label="Kardex e historial financiero" open={showDetail['kardex']} onToggle={() => toggleDetail('kardex')}>
+          <SectionActions actions={[
+            { label: 'Kardex', accent: 'cyan', onClick: () => focusReportPart('kardex', 'report-kardex-table') },
+            { label: 'Historial financiero', accent: 'violet', onClick: () => focusReportPart('kardex', 'report-history-table') },
+            { label: 'Trazabilidad', accent: 'green', onClick: () => focusReportPart('kardex', 'report-history-table') },
+          ]} />
           <div className="grid gap-5 xl:grid-cols-2">
+            <div id="report-kardex-table">
             <Panel title="Kardex / movimientos">
               <DataTable data={filterReportRows(inventory.movements || [], filters, { searchableFields: ['productName', 'sku', 'type', 'documentNumber', 'reference', 'serials'] })} columns={movementColumns} emptyText="Sin movimientos." initialPageSize={25} />
             </Panel>
+            </div>
+            <div id="report-history-table">
             <Panel title="Historial financiero">
               <DataTable data={filteredHistory} columns={historyColumns} emptyText="Sin historial." initialPageSize={25} />
             </Panel>
+            </div>
           </div>
         </DetailSection>
 
-        <DetailSection label="Exclusiones del motor" open={showDetail['exclusions']} onToggle={() => toggleDetail('exclusions')}>
+        <DetailSection id="report-area-exclusions" label="Exclusiones del motor" open={showDetail['exclusions']} onToggle={() => toggleDetail('exclusions')}>
+          <SectionActions actions={[
+            { label: 'Invalidos', accent: 'red', onClick: () => focusReportPart('exclusions', 'report-exclusions-table') },
+            { label: 'Duplicados', accent: 'amber', onClick: () => focusReportPart('exclusions', 'report-exclusions-table') },
+            { label: 'Revision motor', accent: 'blue', onClick: () => focusReportPart('exclusions', 'report-exclusions-table') },
+          ]} />
+          <div id="report-exclusions-table">
           <Panel title="Documentos invalidos y duplicados">
             <DataTable data={[...(report.invalidDocuments || []), ...(report.duplicateDocuments || [])]} columns={exclusionColumns} emptyText="Sin documentos invalidos ni duplicados." initialPageSize={10} />
           </Panel>
+          </div>
         </DetailSection>
       </div>
     </div>
   )
 }
 
-function DetailSection({ label, open, onToggle, children }) {
+function DetailSection({ id, label, open, onToggle, children }) {
+  const meta = detailMeta(label)
+  if (!open) return null
   return (
-    <section className="module-surface p-4 sm:p-5">
-      <button type="button" onClick={onToggle} className="flex w-full items-center justify-between gap-3 text-left">
-        <span className="text-xs font-extrabold uppercase tracking-widest" style={{ color: 'var(--text-secondary)' }}>{label}</span>
-        <ChevronDown size={16} className={`transition ${open ? 'rotate-180' : ''}`} style={{ color: 'rgba(255,255,255,.4)' }} />
-      </button>
-      {open ? <div className="mt-4">{children}</div> : null}
+    <section id={id} className="report-workspace-section">
+      <div className="report-workspace-titlebar">
+        <span className="report-entry-index">{meta.index}</span>
+        <span className="min-w-0 flex-1">
+          <span className="report-entry-title">{label}</span>
+          <span className="report-entry-desc">{meta.description}</span>
+        </span>
+        <span className="report-entry-action">Activo</span>
+      </div>
+      <div className="mt-4">{children}</div>
     </section>
   )
+}
+
+function SectionActions({ actions }) {
+  return (
+    <div className="report-section-actions no-print">
+      {actions.map((action) => (
+        <button
+          key={action.label}
+          type="button"
+          onClick={action.onClick}
+          className={`report-section-action report-nav-${action.accent || 'blue'}`}
+        >
+          <span>{action.label}</span>
+          <ArrowUpRight size={15} />
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function detailMeta(label) {
+  const items = {
+    'Resumen ejecutivo': { index: '00', description: 'Indicadores principales, rentabilidad y graficas del periodo.' },
+    'Agrupacion y acumulados': { index: '01', description: 'Resumen por criterio y acumulados por periodo.' },
+    'Productos y clientes': { index: '02', description: 'Ranking de productos vendidos y clientes frecuentes.' },
+    'Desglose Contado / Credito': { index: '03', description: 'Comparacion de ventas, pagos y balances por condicion.' },
+    'Pagos e inventario': { index: '04', description: 'Ingresos por metodo y valorizacion del inventario.' },
+    'Hojas fiscales separadas': { index: '05', description: 'Carga el dia actual; usa busqueda o filtros para historicos.' },
+    'Kardex e historial financiero': { index: '06', description: 'Movimientos de inventario y trazabilidad financiera.' },
+    'Exclusiones del motor': { index: '07', description: 'Documentos ignorados, duplicados o invalidos.' },
+  }
+  return items[label] || { index: '00', description: 'Abrir detalle del reporte.' }
 }
 
 function MetricCardReport({ label, value, accent, raw }) {
   const colors = { green: 'var(--color-income)', blue: 'var(--color-nav)', amber: 'var(--color-pending)', red: 'var(--color-alert)', violet: 'var(--color-analytics)' }
   return (
-    <div className="rounded-xl border p-4" style={{ borderColor: 'var(--line)', background: `color-mix(in srgb, ${colors[accent] || colors.blue} 8%, transparent)` }}>
-      <p className="text-xs font-extrabold uppercase tracking-wider" style={{ color: colors[accent] || colors.blue }}>{label}</p>
-      <p className="mt-1 font-display text-3xl font-bold tracking-tight" style={{ color: 'var(--text-primary)' }}>{raw ? value : value}</p>
+    <div className="summary-chip" style={{ background: `color-mix(in srgb, ${colors[accent] || colors.blue} 8%, transparent)` }}>
+      <span className="summary-chip-label">{label}</span>
+      <span className="summary-chip-value">{raw ? value : value}</span>
     </div>
   )
 }
@@ -405,32 +629,65 @@ function AdvancedFilters({ filters, setFilter, setQuickRange }) {
   return null
 }
 
-function ReportSheet({ group, onDownload }) {
+function ReportSheet({ group, onDownload, onBack }) {
+  const [activeView, setActiveView] = useState('summary')
   return (
-    <article className="panel rounded-lg p-5">
+    <article id={`report-sheet-${group.id || sheetIdFromMode(group.mode)}`}>
       <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <p className="text-xs font-extrabold uppercase" style={{ color: 'var(--color-nav)' }}>Hoja separada</p>
           <h2 className="font-display text-2xl font-bold">{group.title}</h2>
           <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{group.description}</p>
         </div>
-        <div className="grid gap-2 text-sm sm:grid-cols-2 lg:min-w-80">
+        <div className="no-print flex flex-wrap gap-2">
+          <Button variant="ghost" onClick={onBack}>Volver a hojas</Button>
+          <Button variant="ghost" icon={Download} onClick={onDownload}>PDF</Button>
+        </div>
+      </div>
+
+      <div className="fiscal-sheet-tabs no-print">
+        {[
+          { id: 'summary', label: 'Resumen', value: currency.format(group.bucket?.total || 0) },
+          { id: 'invoices', label: 'Facturas', value: group.bucket?.count || 0 },
+          { id: 'items', label: 'Productos vendidos', value: (group.items || []).length },
+        ].map((item) => (
+          <button key={item.id} type="button" onClick={() => setActiveView(item.id)} className={activeView === item.id ? 'active' : ''}>
+            <span>{item.label}</span>
+            <strong>{item.value}</strong>
+          </button>
+        ))}
+      </div>
+
+      {activeView === 'summary' ? (
+        <div className="fiscal-sheet-summary">
           <Line label="Facturas" value={group.bucket?.count || 0} raw />
           <Line label="Subtotal" value={group.noTax ? group.bucket?.total : group.bucket?.subtotal} />
           <Line label="ITBIS" value={group.noTax ? 0 : group.bucket?.itbis} />
           <Line label="Total" value={group.bucket?.total} />
           <Line label="Ganancia" value={group.bucket?.profit} />
           <Line label="Productos" value={(group.items || []).length} raw />
-          <Button variant="ghost" icon={Download} onClick={onDownload}>PDF</Button>
         </div>
-      </div>
-      <DataTable data={group.invoices || []} columns={invoiceColumns} emptyText={`Sin facturas en ${group.title}.`} />
-      <div className="mt-5">
-        <h3 className="mb-3 font-display text-xl font-bold">Productos vendidos</h3>
-        <DataTable data={group.items || []} columns={itemColumns} emptyText="Sin productos." />
-      </div>
+      ) : null}
+
+      {activeView === 'invoices' ? (
+        <div id={`report-sheet-${group.id || sheetIdFromMode(group.mode)}-invoices`} className="report-sheet-detail">
+          <DataTable data={group.invoices || []} columns={invoiceColumns} emptyText={`Sin facturas en ${group.title}.`} />
+        </div>
+      ) : null}
+
+      {activeView === 'items' ? (
+        <div id={`report-sheet-${group.id || sheetIdFromMode(group.mode)}-items`} className="report-sheet-detail">
+          <DataTable data={group.items || []} columns={itemColumns} emptyText="Sin productos." />
+        </div>
+      ) : null}
     </article>
   )
+}
+
+function sheetIdFromMode(modeValue) {
+  if (modeValue === invoiceModes.NO_TAX) return 'noTax'
+  if (modeValue === invoiceModes.MIXED) return 'mixed'
+  return 'taxed'
 }
 
 function buildReportGroups(baseGroups, invoices, items) {
@@ -507,7 +764,7 @@ function invoiceToExcelRow(invoice) {
 }
 
 function Bucket({ title, bucket, noTax }) {
-  return <div className="panel rounded-lg p-5"><h3 className="font-display text-xl font-bold">{title}</h3><div className="mt-4 space-y-2 text-sm"><Line label="Facturas" value={bucket.count || bucket.documents} raw /><Line label={noTax ? 'Total' : 'Subtotal'} value={noTax ? bucket.total : bucket.subtotal} />{!noTax ? <Line label="ITBIS" value={bucket.itbis || bucket.tax} /> : null}<Line label="Total neto" value={bucket.total} /><Line label="Ganancia" value={bucket.profit || bucket.netProfit} /></div></div>
+  return <div ><h3 className="font-display text-xl font-bold">{title}</h3><div className="mt-4 space-y-2 text-sm"><Line label="Facturas" value={bucket.count || bucket.documents} raw /><Line label={noTax ? 'Total' : 'Subtotal'} value={noTax ? bucket.total : bucket.subtotal} />{!noTax ? <Line label="ITBIS" value={bucket.itbis || bucket.tax} /> : null}<Line label="Total neto" value={bucket.total} /><Line label="Ganancia" value={bucket.profit || bucket.netProfit} /></div></div>
 }
 
 function Line({ label, value, raw }) {
@@ -515,11 +772,11 @@ function Line({ label, value, raw }) {
 }
 
 function ChartPanel({ title, children }) {
-  return <div className="panel flex min-h-[240px] flex-col rounded-lg p-5 sm:min-h-[300px]"><h3 className="mb-3 font-display text-lg font-bold">{title}</h3><div className="min-h-0 flex-1">{children}</div></div>
+  return <div className="flex min-h-[240px] flex-col sm:min-h-[300px]"><h3 className="mb-3 font-display text-lg font-bold">{title}</h3><div className="min-h-0 flex-1">{children}</div></div>
 }
 
 function Panel({ title, children }) {
-  return <section className="module-surface p-4 sm:p-5"><h3 className="mb-4 font-display text-xl font-bold">{title}</h3>{children}</section>
+  return <section className="section-card"><h3 className="mb-4 font-display text-xl font-bold">{title}</h3>{children}</section>
 }
 
 const groupColumns = [

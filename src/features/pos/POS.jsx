@@ -222,7 +222,7 @@ export function POS() {
   return (
     <div className="grid gap-5 xl:grid-cols-[1.05fr_.95fr]">
       <section className="space-y-4">
-        <div className="module-surface p-4 sm:p-5">
+        <div>
           <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
             <div>
               <p className="flex items-center gap-2 text-xs font-extrabold uppercase text-blue-200/80"><Sparkles size={14} /> POS ultra rapido</p>

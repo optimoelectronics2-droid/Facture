@@ -121,15 +121,15 @@ export function Payables() {
   }
 
   return (
-    <div className="space-y-5">
-      <section className="grid gap-3 md:grid-cols-4">
+    <div className="space-y-0">
+      <section className="module-header grid gap-3 md:grid-cols-4">
         <Metric title="Pendientes" value={openPayables.length} detail="Compromisos activos" />
         <Metric title="Balance CxP" value={currency.format(totalBalance)} detail="Solo cuentas abiertas" />
-        <Metric title="Vencidas" value={latePayables.length} detail="Fuera de fecha" danger={latePayables.length > 0} />
+        <Metric title="Vencidas" value={latePayables.length} detail="Fuera de fecha" />
         <Metric title="Pagadas" value={payables.filter((item) => payableBalance(item) <= 0).length} detail="Historial activo" />
       </section>
 
-      <section className="printable-report panel rounded-lg p-5">
+      <div className="section-card">
         <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
           <div>
             <h2 className="font-display text-2xl font-bold">Cuentas por pagar</h2>
@@ -143,11 +143,12 @@ export function Payables() {
         </div>
         <div className="no-print mb-4 flex flex-wrap gap-2">
           {['Todas', 'Pendientes', 'Por vencer <7 dias', 'Vencidas', 'Pagadas'].map((item) => (
-            <button key={item} type="button" onClick={() => setTab(item)} className={`rounded-lg px-3 py-2 text-sm font-bold ${tab === item ? 'bg-blue-500' : 'bg-white/[0.06]'}`}>{item}</button>
+            <button key={item} type="button" onClick={() => setTab(item)} className={`quick-filter-btn${tab === item ? ' active' : ''}`}>{item}</button>
           ))}
         </div>
+        <div className="section-divider" />
         <DataTable data={filtered} columns={columns({ openPayment, openEdit, remove, setHistory })} initialPageSize={25} emptyText="Sin cuentas por pagar con esos filtros." searchPlaceholder="Buscar proveedor, referencia, concepto o estado..." />
-      </section>
+      </div>
 
       <Modal open={creating} onClose={() => setCreating(false)} title="Nueva cuenta por pagar" size="md" footer={<Footer onCancel={() => setCreating(false)} onSave={saveNewPayable} />}>
         <PayableForm draft={draft} setDraft={setDraft} suppliers={suppliers} />
@@ -177,7 +178,7 @@ function PayableForm({ draft, setDraft, suppliers, editing = false }) {
   }))
   return (
     <div className="grid gap-3 md:grid-cols-2">
-      <label><span className="label-dark">Proveedor</span><select value={draft.supplierId} onChange={(event) => set('supplierId', event.target.value)} className="input-dark">{suppliers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+      <label><span className="label-dark">Proveedor</span><select id="payable-supplier" value={draft.supplierId} onChange={(event) => set('supplierId', event.target.value)} className="input-dark">{suppliers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
       <Input label="Referencia / factura" value={draft.reference} onChange={(value) => set('reference', value)} />
       <Input label="Concepto" value={draft.concept} onChange={(value) => set('concept', value)} />
       <Input label="Monto total" type="number" step="0.01" min="0" value={draft.amount} onChange={(value) => set('amount', value)} />
@@ -195,8 +196,8 @@ function Footer({ onCancel, onSave, saveLabel = 'Guardar' }) {
   return <div className="flex justify-end gap-2"><Button variant="ghost" onClick={onCancel}>Cancelar</Button><Button variant="success" onClick={onSave}>{saveLabel}</Button></div>
 }
 
-function Metric({ title, value, detail, danger }) {
-  return <div className={`rounded-lg border p-4 ${danger ? 'border-red-400/20 bg-red-500/10' : 'border-white/10 bg-white/[0.04]'}`}><p className="text-xs font-extrabold uppercase text-white/40">{title}</p><p className="mt-1 font-display text-2xl font-bold">{value}</p><p className="text-xs text-white/45">{detail}</p></div>
+function Metric({ title, value, detail }) {
+  return <div className="summary-chip"><span className="summary-chip-label">{title}</span><span className="summary-chip-value">{value}</span><p className="text-xs" style={{ color: 'var(--text-secondary)' }}>{detail}</p></div>
 }
 
 function Status({ item }) {
@@ -209,12 +210,14 @@ function Icon({ icon: IconSvg, onClick, disabled = false }) {
   return <button type="button" disabled={disabled} onClick={onClick} className="rounded-md border border-white/10 bg-white/[0.035] p-2 text-white/65 hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-35"><IconSvg size={15} /></button>
 }
 
-function Input({ label, value, onChange, type = 'text', step, min }) {
-  return <label><span className="label-dark">{label}</span><input type={type} step={step} min={min} value={value || ''} onChange={(event) => onChange(event.target.value)} className="input-dark" /></label>
+function Input({ label, value, onChange, type = 'text', step, min, id }) {
+  const inputId = id || (label ? label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') : undefined)
+  return <label><span className="label-dark">{label}</span><input id={inputId} type={type} step={step} min={min} value={value || ''} onChange={(event) => onChange(event.target.value)} className="input-dark" /></label>
 }
 
-function Select({ label, value, onChange, options }) {
-  return <label><span className="label-dark">{label}</span><select value={value} onChange={(event) => onChange(event.target.value)} className="input-dark">{options.map((option) => <option key={option}>{option}</option>)}</select></label>
+function Select({ label, value, onChange, options, id }) {
+  const selectId = id || (label ? label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') : undefined)
+  return <label><span className="label-dark">{label}</span><select id={selectId} value={value} onChange={(event) => onChange(event.target.value)} className="input-dark">{options.map((option) => <option key={option}>{option}</option>)}</select></label>
 }
 
 function columns({ openPayment, openEdit, remove, setHistory }) {
@@ -270,4 +273,3 @@ function moneyInput(value) {
 function roundMoney(value) {
   return Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100
 }
-

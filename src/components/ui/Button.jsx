@@ -9,7 +9,7 @@ export function Button({ children, variant = 'primary', className = '', icon: Ic
     dark: 'border border-white/10 bg-[#0d0e14] text-white hover:bg-[#171822]',
   }
   return (
-    <motion.button
+    <motion.button type="button"
       whileTap={{ scale: 0.98 }}
       className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-bold transition ${variants[variant]} ${className}`}
       {...props}

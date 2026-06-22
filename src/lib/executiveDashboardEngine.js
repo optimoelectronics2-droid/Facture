@@ -1,7 +1,11 @@
 import { isActiveCreditNote, isActiveExpense, isActiveProduct, isActiveReceivable, isReportableInvoice, sanitizeCashRegisterWithSources } from './realDataGuards.js'
 
 const money = new Intl.NumberFormat('es-DO', { style: 'currency', currency: 'DOP' })
-const CREDIT_METHODS = new Set(['credito', 'crédito', 'credit'])
+function toNumber(v) { return Number(v || 0) }
+function isCreditMethod(m) {
+  var s = String(m || '').toLowerCase()
+  return s.includes('credito') || s.includes('crédito') || s.includes('credit')
+}
 
 export function buildExecutiveDashboardModel({
   invoices = [], products = [], customers = [], receivables = [],
@@ -56,8 +60,8 @@ export function buildExecutiveDashboardModel({
     weekCashSales: sumNonCredit(weekInvoices),
     weekCreditSales: sumCredit(weekInvoices),
 
-    monthSales: exec?.indicators?.find((i) => i.id === 'totalSales')?.value ?? sumTotal(monthInvoices),
-    monthProfit: exec?.indicators?.find((i) => i.id === 'totalProfit')?.value ?? sumEffectiveProfit(monthInvoices),
+    monthSales: sumTotal(monthInvoices),
+    monthProfit: sumEffectiveProfit(monthInvoices),
     monthTax: sumTax(monthInvoices),
     monthCashSales: sumNonCredit(monthInvoices),
     monthCreditSales: sumCredit(monthInvoices),
@@ -120,8 +124,6 @@ function buildDayComparison(today, yesterday) {
 function sumTotal(invoices) { return invoices.reduce((s, inv) => s + Number(inv.totals?.total || 0), 0) }
 function sumTax(invoices) { return invoices.reduce((s, inv) => s + Number(inv.totals?.itbis || 0), 0) }
 
-function isCreditMethod(m = '') { return CREDIT_METHODS.has(String(m || '').toLowerCase().trim()) }
-
 function sumNonCredit(invoices) {
   return invoices.reduce((t, inv) => {
     const payments = inv.payments?.length ? inv.payments : [{ method: inv.paymentMethod || 'Efectivo', amount: inv.totals?.total || 0 }]
@@ -143,9 +145,10 @@ function sumEffectiveProfit(invoices) {
   }, 0)
 }
 function paymentRatio(invoice) {
-  const total = Number(invoice.totals?.total || 0)
-  if (total <= 0) return 0; if (invoice.balanceDue <= 0 || invoice.status === 'paid') return 1
-  return Math.min(Number(invoice.paidAmount || 0) / total, 1)
+  var total = Number(invoice.totals?.total || 0)
+  if (total <= 0) return 0
+  if (toNumber(invoice.balanceDue) <= 0 || invoice.status === 'paid') return 1
+  return Math.min(Math.max(total - toNumber(invoice.balanceDue), 0) / total, 1)
 }
 
 function sumAbonosInPeriod(receivables = [], periodKey, mode) {

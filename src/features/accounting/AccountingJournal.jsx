@@ -146,12 +146,12 @@ export function AccountingJournal() {
 
   return (
     <div className="space-y-5">
-      <section className="module-surface p-4 sm:p-5">
+      <div className="module-header">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div>
-            <p className="flex items-center gap-2 text-sm font-bold uppercase text-blue-200/80"><BookOpenCheck size={17} /> Contabilidad avanzada</p>
-            <h2 className="font-display text-2xl font-bold">Libro contable profesional</h2>
-            <p className="text-sm text-white/45">Libro diario, asientos explicados, mayor general y analisis por cuenta con origen documental y balance de comprobacion.</p>
+            <p className="module-header-eyebrow"><BookOpenCheck size={17} /> Contabilidad avanzada</p>
+            <h2 className="module-header-title">Libro contable profesional</h2>
+            <p className="module-header-desc">Libro diario, asientos explicados, mayor general y analisis por cuenta con origen documental y balance de comprobacion.</p>
           </div>
           <div className="no-print flex flex-wrap gap-2">
             <Button variant="ghost" icon={Printer} onClick={() => window.print()}>Imprimir</Button>
@@ -166,11 +166,11 @@ export function AccountingJournal() {
           <TotalCard label="Creditos" value={currency.format(creditTotal)} />
           <TotalCard label="Balance" value={Math.abs(difference) < 0.01 ? 'Cuadrado' : currency.format(difference)} raw />
         </div>
-      </section>
+      </div>
 
-      <section className="panel rounded-lg p-4 sm:p-5">
+      <section>
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="inline-flex rounded-lg border border-white/10 bg-white/[0.035] p-1">
+          <div className="inline-flex">
             {[
               ['journal', 'Libro diario'],
               ['entries', 'Asientos'],
@@ -179,17 +179,17 @@ export function AccountingJournal() {
               ['analysis', 'Analisis'],
               ['accounts', 'Catalogo'],
             ].map(([id, label]) => (
-              <button key={id} type="button" onClick={() => setTab(id)} className={`rounded-md px-3 py-2 text-sm font-bold transition ${tab === id ? 'bg-blue-500 text-white' : 'text-white/55 hover:bg-white/[0.06]'}`}>{label}</button>
+              <button key={id} type="button" onClick={() => setTab(id)} className={`quick-filter-btn${tab === id ? ' active' : ''}`}>{label}</button>
             ))}
           </div>
           <div className="grid w-full gap-2 lg:max-w-5xl lg:grid-cols-[140px_120px_140px_120px_1fr]">
-            <input type="date" value={range.dateFrom} onChange={(event) => setRange((state) => ({ ...state, dateFrom: event.target.value }))} className="input-dark" />
-            <input type="time" value={range.timeFrom} onChange={(event) => setRange((state) => ({ ...state, timeFrom: event.target.value }))} className="input-dark" />
-            <input type="date" value={range.dateTo} onChange={(event) => setRange((state) => ({ ...state, dateTo: event.target.value }))} className="input-dark" />
-            <input type="time" value={range.timeTo} onChange={(event) => setRange((state) => ({ ...state, timeTo: event.target.value }))} className="input-dark" />
-            <label className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/20 px-3">
+            <input id="journal-date-from" type="date" value={range.dateFrom} onChange={(event) => setRange((state) => ({ ...state, dateFrom: event.target.value }))} className="input-dark" />
+            <input id="journal-time-from" type="time" value={range.timeFrom} onChange={(event) => setRange((state) => ({ ...state, timeFrom: event.target.value }))} className="input-dark" />
+            <input id="journal-date-to" type="date" value={range.dateTo} onChange={(event) => setRange((state) => ({ ...state, dateTo: event.target.value }))} className="input-dark" />
+            <input id="journal-time-to" type="time" value={range.timeTo} onChange={(event) => setRange((state) => ({ ...state, timeTo: event.target.value }))} className="input-dark" />
+            <label className="module-search-bar">
               <Search size={15} className="text-white/35" />
-              <input value={query} onChange={(event) => setQuery(event.target.value)} className="min-w-0 flex-1 bg-transparent py-2.5 text-sm font-bold outline-none placeholder:text-white/35" placeholder="Buscar asiento, cuenta, cliente, usuario, referencia..." />
+              <input id="journal-query" value={query} onChange={(event) => setQuery(event.target.value)} className="min-w-0 flex-1 bg-transparent py-2.5 text-sm font-bold outline-none placeholder:text-white/35" placeholder="Buscar asiento, cuenta, cliente, usuario, referencia..." />
             </label>
           </div>
         </div>
@@ -239,11 +239,11 @@ export function AccountingJournal() {
 }
 
 function Panel({ title, children }) {
-  return <section className="panel rounded-lg p-4 sm:p-5"><h3 className="mb-4 font-display text-xl font-bold">{title}</h3>{children}</section>
+  return <section><h3 className="mb-4 font-display text-xl font-bold">{title}</h3>{children}</section>
 }
 
 function TotalCard({ label, value }) {
-  return <div className="rounded-lg border border-white/10 bg-white/[0.04] p-4"><p className="text-xs font-extrabold uppercase text-white/40">{label}</p><p className="mt-1 font-display text-2xl font-bold">{value}</p></div>
+  return <div className="summary-chip"><span className="summary-chip-label">{label}</span><span className="summary-chip-value">{value}</span></div>
 }
 
 function InsightCard({ label, value, detail }) {

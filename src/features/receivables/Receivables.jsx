@@ -160,16 +160,16 @@ export function Receivables() {
   }
 
   return (
-    <div className="space-y-5">
-      <section className="module-surface p-5 sm:p-6">
+    <div className="space-y-0">
+      <section className="module-header">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div>
-            <p className="text-xs font-extrabold uppercase" style={{ color: 'var(--color-pending)' }}>Cuentas por cobrar</p>
-            <h2 className="font-display text-3xl font-bold">CxC y gestion de cobros</h2>
-            <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>{filtered.length} facturas | {currency.format(total)} pendientes</p>
+            <p className="module-header-eyebrow">Cuentas por cobrar</p>
+            <h2 className="module-header-title">CxC y gestion de cobros</h2>
+            <p className="module-header-desc">{filtered.length} facturas | {currency.format(total)} pendientes</p>
           </div>
           <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 rounded-lg px-3 py-2" style={{ border: '1px solid var(--line)', background: 'var(--bg-input)' }}>
+            <div className="module-search-bar">
               <Search size={16} style={{ color: 'var(--text-tertiary)' }} />
               <input id="receivable-query" name="receivable-query" value={query} onChange={(e) => setQuery(e.target.value)} className="min-w-0 flex-1 bg-transparent text-sm outline-none" placeholder="Buscar cliente, factura, estado" />
             </div>
@@ -178,10 +178,10 @@ export function Receivables() {
         </div>
       </section>
 
-      <section className="module-surface p-4 sm:p-5">
+      <div className="section-card">
         <div className="mb-4 flex flex-wrap gap-2">
           {tabs.map((item) => (
-            <button key={item} onClick={() => setTab(item)} className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-bold transition ${tab === item ? 'border-blue-400 bg-blue-500/15 text-blue-100' : 'border-white/10 bg-white/[0.035] text-white/55 hover:bg-white/[0.07]'}`}>
+            <button key={item} onClick={() => setTab(item)} className={`quick-filter-btn${tab === item ? ' active' : ''}`}>
               {item}
               {statusCounts[item] > 0 ? (
                 <span className="rounded-full px-2 py-0.5 text-[10px] font-bold" style={{ background: tab === item ? 'rgba(59,130,246,.25)' : 'rgba(255,255,255,.1)' }}>{statusCounts[item]}</span>
@@ -189,6 +189,7 @@ export function Receivables() {
             </button>
           ))}
         </div>
+        <div className="section-divider" />
         <DataTable data={filtered} columns={[
           { header: 'Cliente', accessorKey: 'customerName' },
           { header: 'Factura', accessorKey: 'invoiceNumber' },
@@ -200,7 +201,7 @@ export function Receivables() {
           { header: 'Estado', cell: ({ row }) => <Status item={row.original} /> },
           { header: 'Acciones', cell: ({ row }) => <Actions row={row.original} onPay={openPayment} onEdit={openEdit} onDelete={removeReceivable} onRemind={remind} onStatus={setStatus} customers={customers} company={company} onHistory={setHistory} /> },
         ]} />
-      </section>
+      </div>
 
       <Modal open={Boolean(paying)} onClose={() => setPaying(null)} title="Registrar pago" size="md" footer={<div className="flex justify-end gap-2"><Button variant="ghost" onClick={() => setPaying(null)}>Cancelar</Button><Button variant="success" onClick={savePayment}>Confirmar pago</Button></div>}>
         {paying ? <div className="grid gap-3"><p style={{ color: 'rgba(255,255,255,.6)' }}>Factura: <b>{paying.invoiceNumber}</b> | Cliente: <b>{paying.customerName}</b> | Vence: {paying.dueDate}</p><p style={{ color: 'rgba(255,255,255,.6)' }}>Total: {currency.format(roundMoney(paying.total))} | Abonado: {currency.format(roundMoney(paying.paid))} | <b>Balance: {currency.format(roundMoney(paying.balance))}</b></p><div className="grid gap-3 md:grid-cols-2"><Input label="Monto" name="payment-amount" type="number" step="0.01" min="0" value={payment.amount} onChange={(v) => setPayment((s) => ({ ...s, amount: v }))} /><Select label="Metodo" name="payment-method" value={payment.method} onChange={(v) => setPayment((s) => ({ ...s, method: v }))} options={['Efectivo', 'Tarjeta', 'Transferencia', 'Cheque']} /><Input label="Referencia" name="payment-reference" value={payment.reference} onChange={(v) => setPayment((s) => ({ ...s, reference: v }))} /><Input label="Fecha" name="payment-date" type="date" value={payment.date} onChange={(v) => setPayment((s) => ({ ...s, date: v }))} /><div className="md:col-span-2"><Input label="Comentario" name="payment-comment" value={payment.comment} onChange={(v) => setPayment((s) => ({ ...s, comment: v }))} /></div></div></div> : null}

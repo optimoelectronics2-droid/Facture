@@ -1,7 +1,9 @@
 import { isActiveReceivable, isReportableInvoice, isActiveCreditNote, isActiveExpense, isActiveProduct, isActivePayment } from './realDataGuards.js'
 
-var CREDIT_METHODS = new Set(['credito', 'crédito', 'credit'])
-function isCreditMethod(m) { return CREDIT_METHODS.has(String(m || '').trim().toLowerCase()) }
+function isCreditMethod(m) {
+  var s = String(m || '').toLowerCase()
+  return s.includes('credito') || s.includes('crédito') || s.includes('credit')
+}
 function toNumber(v) { return Number(v || 0) }
 function money(v) { return Number(v).toLocaleString('es-DO', { style: 'currency', currency: 'DOP' }) }
 function moneyValue(v) { return Math.round((Number(v || 0) + Number.EPSILON) * 100) / 100 }
@@ -39,7 +41,7 @@ function paymentRatio(inv) {
   var total = invoiceTotal(inv)
   if (total <= 0) return 0
   if (toNumber(inv.balanceDue) <= 0 || inv.status === 'paid') return 1
-  return Math.min(toNumber(inv.paidAmount || 0) / total, 1)
+  return Math.min(Math.max(total - toNumber(inv.balanceDue), 0) / total, 1)
 }
 
 function sumTotal(invs) { return invs.reduce(function(s, inv) { return s + invoiceTotal(inv) }, 0) }
@@ -101,6 +103,7 @@ export function rebuildReports(data) {
   })
 
   function effectivePending(inv) {
+    if (inv.balanceDue != null) return Math.max(0, toNumber(inv.balanceDue))
     var total = invoiceTotal(inv)
     var paid = toNumber(inv.paidAmount || 0)
     var refunds = refundsByInvoice.get(inv.id) || 0
@@ -205,9 +208,17 @@ export function rebuildReports(data) {
       pendingTotal: moneyValue(receivablesBalance),
       overdueCount: overdueInvoices.length,
       overdueTotal: moneyValue(overdueBalance),
-      aging: crInvsWithBalance.length > 0 ? [
-        { range: '0-30', count: crInvsWithBalance.length, total: moneyValue(receivablesBalance) }
-      ] : [],
+      aging: (function() {
+        var buckets = { '0-30': { count: 0, total: 0 }, '31-60': { count: 0, total: 0 }, '61-90': { count: 0, total: 0 }, '90+': { count: 0, total: 0 } }
+        crInvsWithBalance.forEach(function(inv) {
+          var due = new Date(inv.dueDate || inv.issuedAt || inv.createdAt || nowDate)
+          var daysOverdue = Math.max(0, Math.floor((nowDate - due) / (1000 * 60 * 60 * 24)))
+          var pend = effectivePending(inv)
+          var key = daysOverdue <= 30 ? '0-30' : daysOverdue <= 60 ? '31-60' : daysOverdue <= 90 ? '61-90' : '90+'
+          buckets[key].count += 1; buckets[key].total += pend
+        })
+        return Object.entries(buckets).filter(function(e) { return e[1].count > 0 }).map(function(e) { return { range: e[0], count: e[1].count, total: moneyValue(e[1].total) } })
+      })(),
     },
     profitability: { revenue: moneyValue(totalRevenue), profit: moneyValue(totalProfit), expenses: moneyValue(totalExpenses), netProfit: moneyValue(netProfit), margin: totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0 },
     averageTicket: { total: moneyValue(avgTicket), count: invoices.length, formatted: money(avgTicket) },

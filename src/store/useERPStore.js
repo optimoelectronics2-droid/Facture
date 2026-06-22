@@ -1065,13 +1065,17 @@ export const useERPStore = create(
         const previousNonCredit = getNonCreditAmount(previous)
         const nextNonCredit = getNonCreditAmount(nextInvoice)
         const previousReceivable = state.receivables.find((item) => item.invoiceId === invoiceId)
-        const carriedPayments = previous.customerId === nextInvoice.customerId
-          ? (previousReceivable?.payments || []).filter((payment) => payment.origin !== 'initial' && !['voided', 'deleted', 'cancelled'].includes(String(payment.status || '').toLowerCase()))
+        var carriedPayments = previous.customerId === nextInvoice.customerId
+          ? (previousReceivable?.payments || []).filter(function(p) { return p.origin !== 'initial' && !['voided', 'deleted', 'cancelled'].includes(String(p.status || '').toLowerCase()) })
           : []
-        const carriedPaid = carriedPayments.reduce((sum, payment) => sum + toNumber(payment.amount), 0)
-        const nextInitialPaid = nextNonCredit
-        const nextPaid = moneyValue(nextInitialPaid + carriedPaid)
-        const nextReceivableBalance = moneyValue(Math.max(nextCredit - carriedPaid, 0))
+        var carriedPaid = carriedPayments.reduce(function(s, p) { return s + toNumber(p.amount) }, 0)
+        var prevCreditNoteReduction = (state.creditNotes || []).filter(function(n) { return n.invoiceId === invoiceId && n.status !== 'voided' && n.status !== 'draft' && n.status !== 'deleted' }).reduce(function(s, n) {
+          var creditCash = (n.payments || []).filter(function(p) { return !String(p.method || '').toLowerCase().includes('credito') }).reduce(function(s2, p) { return s2 + toNumber(p.amount) }, 0)
+          return s + Math.max(0, toNumber(n.totals?.total || n.total || 0) - creditCash)
+        }, 0)
+        var nextInitialPaid = nextNonCredit
+        var nextPaid = moneyValue(nextInitialPaid + carriedPaid)
+        var nextReceivableBalance = moneyValue(Math.max(nextCredit - carriedPaid - prevCreditNoteReduction, 0))
         const rebuiltReceivable = nextCredit > 0 ? buildReceivable(nextInvoice, state.customers.find((item) => item.id === nextInvoice.customerId), nextCredit, nextInitialPaid) : null
         const nextReceivable = nextCredit > 0
           ? {
@@ -1383,8 +1387,12 @@ export const useERPStore = create(
           inventoryMovements: [...reversalMovements, ...state.inventoryMovements],
           invoices: state.invoices.map((inv) => {
             if (inv.id !== invoiceId) return inv
-            const newBalanceDue = Math.max(toNumber(inv.balanceDue || inv.totals?.total || 0) - creditReduction, 0)
-            return { ...inv, balanceDue: newBalanceDue, paidAmount: toNumber(inv.paidAmount || 0), paymentStatus: newBalanceDue <= 0 ? 'paid' : inv.paymentStatus, status: newBalanceDue <= 0 ? 'paid' : inv.status }
+            var currentBalanceDue = toNumber(inv.balanceDue)
+            if (currentBalanceDue <= 0 && inv.id) currentBalanceDue = Math.max(0, toNumber(inv.totals?.total || 0) - toNumber(inv.paidAmount || 0))
+            var newBalanceDue = Math.max(currentBalanceDue - creditReduction, 0)
+            var newPaidAmount = Math.max(toNumber(inv.paidAmount || 0) - creditCash, 0)
+            const newCreditAmount = Math.max(toNumber(inv.creditAmount || 0) - creditReduction, 0)
+            return { ...inv, balanceDue: newBalanceDue, paidAmount: newPaidAmount, creditAmount: newCreditAmount, paymentStatus: newBalanceDue <= 0 ? 'paid' : inv.paymentStatus, status: newBalanceDue <= 0 ? 'paid' : inv.status }
           }),
           receivables: state.receivables.map((receivable) => (
             receivable.invoiceId === invoiceId
@@ -1733,7 +1741,7 @@ export const useERPStore = create(
           receivables: current.receivables.filter((item) => item.id !== receivable.id),
           invoices: current.invoices.map((invoice) => (
             invoice.id === receivable.invoiceId && ['credit', 'partial'].includes(invoice.status)
-              ? { ...invoice, status: 'paid', updatedAt: now() }
+              ? { ...invoice, status: 'paid', paymentStatus: 'paid', paidAmount: toNumber(invoice.paidAmount || 0) + toNumber(receivable.balance), balanceDue: 0, updatedAt: now() }
               : invoice
           )),
           customers: current.customers.map((customer) => (
@@ -1858,11 +1866,11 @@ export const useERPStore = create(
         return deleted
       },
 
-      registerCashMovement({ type, amount, method, concept, reference = '', category = '' }) {
+      registerCashMovement({ type, amount, method, concept, reference = '', category = '', destination = '', messenger = '', movementDate = '', channel = '', notes = '' }) {
         const value = toNumber(amount)
         if (value <= 0) throw new Error('El monto del movimiento debe ser mayor que cero.')
         if (!concept?.trim()) throw new Error('El concepto del movimiento es obligatorio.')
-        const movement = scopeRecord({ id: id('cashmov'), type, amount: value, method, concept, reference, category, source: 'manual', status: 'active', createdAt: now() }, get().activeCompanyId)
+        const movement = scopeRecord({ id: id('cashmov'), type, amount: value, method, concept, reference, category, destination, messenger, movementDate, channel, notes, source: 'manual', status: 'active', createdAt: now() }, get().activeCompanyId)
         const decreasesCash = ['expense', 'withdrawal', 'retiro'].includes(String(type || '').toLowerCase())
         set((state) => ({
           cashRegister: {
@@ -2004,8 +2012,7 @@ export const useERPStore = create(
         ;(state.receivables || []).forEach((rec) => {
           const invoice = state.invoices.find((inv) => inv.id === rec.invoiceId)
           const invoiceStatus = invoice ? String(invoice.status || '').toLowerCase() : ''
-          const invoiceFullyPaid = invoice && (Number(invoice.balanceDue || 0) <= 0 || invoiceStatus === 'paid')
-          if (!invoice || invalidStatuses.has(invoiceStatus) || invoiceFullyPaid) { removed.receivables += 1 }
+          if (!invoice || invalidStatuses.has(invoiceStatus)) { removed.receivables += 1 }
           else { keptReceivableIds.add(rec.id) }
         })
         ;(state.payments || []).forEach((pay) => {
@@ -2035,7 +2042,6 @@ export const useERPStore = create(
             if (!invoice) return false
             const invStatus = String(invoice.status || '').toLowerCase()
             if (invalidStatuses.has(invStatus)) return false
-            if (Number(invoice.balanceDue || 0) <= 0 || invStatus === 'paid') return false
             return true
           }),
           payments: (current.payments || []).filter((pay) => {
@@ -2084,15 +2090,32 @@ export const useERPStore = create(
           if (!allPaymentsByInvoice[p.invoiceId]) allPaymentsByInvoice[p.invoiceId] = []
           allPaymentsByInvoice[p.invoiceId].push(p)
         })
+        var creditNoteReductions = {}
+        ;(state.creditNotes || []).forEach(function(n) {
+          if (n.status === 'voided' || n.status === 'draft' || n.status === 'deleted') return
+          if (!n.invoiceId) return
+          var creditCash = (n.payments || []).filter(function(p) { return !p.method || !p.method.toLowerCase().includes('credito') }).reduce(function(s, p) { return s + toNumber(p.amount) }, 0)
+          var reduction = moneyValue(Math.max(toNumber(n.totals?.total || n.total || 0) - creditCash, 0))
+          if (reduction > 0) creditNoteReductions[n.invoiceId] = (creditNoteReductions[n.invoiceId] || 0) + reduction
+        })
         var nextReceivables = (state.receivables || []).map(function(rec) {
           var globalPayments = allPaymentsByInvoice[rec.invoiceId] || []
           var recvPayments = (rec.payments || []).filter(function(p) { return p.status !== 'deleted' })
           var allPayments = globalPayments.length > recvPayments.length ? globalPayments : recvPayments
           var totalPaid = allPayments.reduce(function(s, p) { return s + toNumber(p.amount) }, 0)
-          var financed = toNumber(rec.financedAmount || rec.total || 0)
-          var newBalance = moneyValue(Math.max(financed - totalPaid, 0))
+          var initialPaymentsSum = allPayments.filter(function(p) { return p.origin === 'initial' }).reduce(function(s, p) { return s + toNumber(p.amount) }, 0)
+          var againstCreditPaid = totalPaid - initialPaymentsSum
+          var creditNoteReduction = creditNoteReductions[rec.invoiceId] || 0
+          var invoice = state.invoices.find(function(inv) { return inv.id === rec.invoiceId })
+          var financed = toNumber(rec.financedAmount)
+          if (financed <= 0 && invoice) {
+            financed = toNumber(invoice.creditAmount) || Math.max(0, toNumber(invoice.totals?.total || invoice.total || 0) - toNumber(invoice.paidAmount || 0))
+          } else if (financed <= 0) {
+            financed = toNumber(rec.total || 0)
+          }
+          var newBalance = moneyValue(Math.max(financed - againstCreditPaid - creditNoteReduction, 0))
           var newPaid = moneyValue(totalPaid)
-          var newStatus = newBalance <= 0 ? 'paid' : totalPaid > 0 ? 'partial' : 'open'
+          var newStatus = newBalance <= 0 ? 'paid' : againstCreditPaid > 0 ? 'partial' : 'open'
           if (Math.abs(toNumber(rec.balance) - newBalance) > 0.01 || Math.abs(toNumber(rec.paid) - newPaid) > 0.01 || rec.status !== newStatus) {
             fixed.receivables++
           }
@@ -2309,7 +2332,7 @@ function buildReceivable(invoice, customer, amount, paid = 0) {
       user: invoice.seller || 'Sistema',
       comment: 'Abono inicial registrado al emitir la factura.',
       origin: 'initial',
-      balanceBefore: moneyValue(invoice.totals?.total || amount),
+      balanceBefore: moneyValue(amount),
       balanceAfter: moneyValue(amount),
       status: 'active',
     })) || []

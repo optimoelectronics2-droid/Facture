@@ -86,17 +86,20 @@ export function QuoteList() {
   ]
 
   return (
-    <section className="module-surface p-4 sm:p-5">
-      <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div><h2 className="font-display text-2xl font-bold">Cotizaciones</h2><p className="text-sm text-white/45">Versiones, WhatsApp y conversion a factura.</p></div>
-        <div className="toolbar-grid w-full lg:max-w-2xl">
-          <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/20 px-3 py-2">
-            <Search size={16} className="text-white/35" />
-            <input id="quote-search" name="quoteSearch" value={query} onChange={(event) => setQuery(event.target.value)} className="min-w-0 flex-1 bg-transparent text-sm outline-none" placeholder="Buscar numero, cliente, estado" />
+    <div className="space-y-0">
+      <section className="module-header">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div><h2 className="module-header-title">Cotizaciones</h2><p className="module-header-desc">Versiones, WhatsApp y conversion a factura.</p></div>
+          <div className="toolbar-grid w-full lg:max-w-2xl">
+            <label className="module-search-bar">
+              <Search size={16} />
+              <input id="quote-search" name="quoteSearch" value={query} onChange={(event) => setQuery(event.target.value)} className="min-w-0 flex-1 bg-transparent text-sm outline-none" placeholder="Buscar numero, cliente, estado" />
+            </label>
+            <Button icon={Plus} onClick={() => navigate('/cotizaciones/nueva')}>Nueva cotizacion</Button>
           </div>
-          <Button icon={Plus} onClick={() => navigate('/cotizaciones/nueva')}>Nueva cotizacion</Button>
         </div>
-      </div>
+      </section>
+      <div className="section-divider" />
       <DataTable data={filteredQuotes} columns={columns} emptyText="No hay cotizaciones con esos filtros." />
       <Modal open={Boolean(viewing)} onClose={() => setViewing(null)} title="Vista de cotizacion" size="xl">
         {viewing ? <QuotePreview quote={viewing} company={company} customer={customers.find((customer) => customer.id === viewing.customerId)} /> : null}
@@ -105,7 +108,7 @@ export function QuoteList() {
         <label htmlFor="quote-convert-ncf"><span className="label-dark">Tipo NCF</span><select id="quote-convert-ncf" name="quoteConvertNcf" value={ncfType} onChange={(e) => setNcfType(e.target.value)} className="input-dark"><option>B01</option><option>B02</option><option>B14</option><option>B15</option><option>E31</option><option>E32</option><option>NO_FISCAL</option></select></label>
       </Modal>
       <ConfirmDialog state={confirmState} onClose={close} />
-    </section>
+    </div>
   )
 }
 

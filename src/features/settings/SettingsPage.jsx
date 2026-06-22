@@ -4,7 +4,7 @@ import { Button } from '../../components/ui/Button'
 import { useToast } from '../../hooks/useToast'
 import { useERPStore } from '../../store/useERPStore'
 import { defaultFiscalSettings, isImageUrl } from '../../lib/tenantEngine'
-import { LABEL_DIMENSIONS } from '../../services/barcodeLabelService'
+import { LABEL_SIZES, DPI_VALUES } from '../../lib/labelEngine'
 
 export function SettingsPage() {
   const toast = useToast()
@@ -130,10 +130,10 @@ export function SettingsPage() {
   return (
     <div className="space-y-5">
       <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
-        <div className="panel rounded-lg p-5">
+        <div>
           <div className="mb-4 flex items-center gap-3"><Sparkles className="text-emerald-300" /><div><h2 className="font-display text-2xl font-bold">SaaS multiempresa</h2><p className="text-sm text-white/45">Cada empresa trabaja en su propio workspace local sincronizable sin mezclar inventario, facturas ni reportes.</p></div></div>
           <div className="grid gap-3 md:grid-cols-2">
-            <Field label="Empresa activa"><select value={activeCompanyId} onChange={(event) => handleSwitchCompany(event.target.value)} className="input-dark">{companies.map((item) => <option key={item.id} value={item.id}>{item.name || item.legalName || item.id}</option>)}</select></Field>
+            <Field label="Empresa activa"><select id="active-company" value={activeCompanyId} onChange={(event) => handleSwitchCompany(event.target.value)} className="input-dark">{companies.map((item) => <option key={item.id} value={item.id}>{item.name || item.legalName || item.id}</option>)}</select></Field>
             <div className="rounded-lg border border-white/10 bg-white/[0.035] p-3 text-sm text-white/60">
               <p className="font-bold text-white">{company.name || 'Empresa sin nombre'}</p>
               <p>{company.rnc || 'Sin RNC'} · {company.email || 'Sin email'}</p>
@@ -145,10 +145,10 @@ export function SettingsPage() {
               <div key={item.id} className="rounded-lg border border-white/10 bg-white/[0.035] p-3">
                 {editingCompanyId === item.id ? (
                   <div className="grid gap-2 md:grid-cols-[1fr_130px_130px_1fr_auto]">
-                    <input value={editingCompanyDraft.name} onChange={(event) => setEditingCompanyDraft((state) => ({ ...state, name: event.target.value }))} className="input-dark" placeholder="Nombre" />
-                    <input value={editingCompanyDraft.rnc} onChange={(event) => setEditingCompanyDraft((state) => ({ ...state, rnc: event.target.value }))} className="input-dark" placeholder="RNC" />
-                    <input value={editingCompanyDraft.phone} onChange={(event) => setEditingCompanyDraft((state) => ({ ...state, phone: event.target.value }))} className="input-dark" placeholder="Telefono" />
-                    <input value={editingCompanyDraft.email} onChange={(event) => setEditingCompanyDraft((state) => ({ ...state, email: event.target.value }))} className="input-dark" placeholder="Email" />
+                    <input id="edit-company-name" value={editingCompanyDraft.name} onChange={(event) => setEditingCompanyDraft((state) => ({ ...state, name: event.target.value }))} className="input-dark" placeholder="Nombre" />
+                    <input id="edit-company-rnc" value={editingCompanyDraft.rnc} onChange={(event) => setEditingCompanyDraft((state) => ({ ...state, rnc: event.target.value }))} className="input-dark" placeholder="RNC" />
+                    <input id="edit-company-phone" value={editingCompanyDraft.phone} onChange={(event) => setEditingCompanyDraft((state) => ({ ...state, phone: event.target.value }))} className="input-dark" placeholder="Telefono" />
+                    <input id="edit-company-email" value={editingCompanyDraft.email} onChange={(event) => setEditingCompanyDraft((state) => ({ ...state, email: event.target.value }))} className="input-dark" placeholder="Email" />
                     <div className="flex gap-2"><Button icon={Save} onClick={handleUpdateCompany}>Guardar</Button><Button variant="ghost" onClick={() => setEditingCompanyId('')}>Cancelar</Button></div>
                   </div>
                 ) : (
@@ -161,7 +161,7 @@ export function SettingsPage() {
             ))}
           </div>
         </div>
-        <div className="panel rounded-lg p-5">
+        <div>
           <h3 className="font-display text-xl font-bold">Crear empresa</h3>
           <div className="mt-4 grid gap-3">
             {['name:Nombre empresa', 'rnc:RNC', 'phone:Telefono', 'email:Email'].map((item) => {
@@ -173,7 +173,7 @@ export function SettingsPage() {
         </div>
       </section>
 
-      <section className="panel rounded-lg p-5">
+      <section>
         <div className="mb-4 flex items-center gap-3"><Building2 className="text-blue-300" /><div><h2 className="font-display text-2xl font-bold">Personalizacion inicial del sistema</h2><p className="text-sm text-white/45">Todo empieza vacio: registra empresa, tienda, secuencias, proveedores y categorias.</p></div></div>
         <div className="grid gap-3 md:grid-cols-4">
           {['name:Nombre empresa', 'legalName:Razon social', 'rnc:RNC', 'address:Direccion', 'city:Ciudad', 'province:Provincia', 'phone:Telefono', 'whatsapp:WhatsApp', 'email:Email', 'logoUrl:Logo URL'].map((item) => {
@@ -184,13 +184,13 @@ export function SettingsPage() {
           <Input label="Color acento" value={companyDraft.branding?.accentColor || '#10b981'} onChange={(value) => setCompanyDraft((state) => ({ ...state, branding: { ...(state.branding || {}), accentColor: value } }))} />
           <Input type="number" label="Tasa USD" value={companyDraft.exchangeRate} onChange={(value) => setCompanyDraft((state) => ({ ...state, exchangeRate: Number(value) }))} />
           <Input type="number" label="Descuento max %" value={companyDraft.maxDiscountPercent} onChange={(value) => setCompanyDraft((state) => ({ ...state, maxDiscountPercent: Number(value) }))} />
-          <label className="flex items-center gap-2 pt-6 text-sm"><input type="checkbox" checked={companyDraft.requireOpenRegister} onChange={(e) => setCompanyDraft((state) => ({ ...state, requireOpenRegister: e.target.checked }))} /> Requerir caja abierta</label>
+          <label className="flex items-center gap-2 pt-6 text-sm"><input id="require-open-register" type="checkbox" checked={companyDraft.requireOpenRegister} onChange={(e) => setCompanyDraft((state) => ({ ...state, requireOpenRegister: e.target.checked }))} /> Requerir caja abierta</label>
         </div>
         <div className="mt-4 flex justify-end"><Button icon={Save} onClick={saveCompany}>Guardar empresa</Button></div>
         {companyDraft.logoUrl ? <div className="mt-4 flex items-center gap-3 rounded-lg border border-white/10 bg-white/[0.035] p-3"><div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-lg bg-black/30"><img src={companyDraft.logoUrl} alt="Preview logo empresa" className="h-full w-full object-contain" onError={() => toast.error('No se pudo cargar el logo. Revise la URL.')} /></div><p className="text-sm text-white/50">Preview en tiempo real para facturas, POS, dashboard y reportes.</p></div> : null}
       </section>
 
-      <section className="panel rounded-lg p-5">
+      <section>
         <div className="mb-4 flex items-center gap-3"><ShieldCheck className="text-emerald-300" /><div><h2 className="font-display text-2xl font-bold">Facturacion flexible RD</h2><p className="text-sm text-white/45">La factura normal, NCF y e-CF son modos opcionales por empresa.</p></div></div>
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <Toggle label="Usar comprobantes fiscales" checked={fiscalDraft.ncfEnabled} onChange={(value) => setFiscalDraft((state) => ({ ...state, ncfEnabled: value, fiscalEnabled: value || state.ecfEnabled }))} />
@@ -199,8 +199,8 @@ export function SettingsPage() {
           <Toggle label="Secuencia automatica" checked={fiscalDraft.autoSequenceEnabled} onChange={(value) => setFiscalDraft((state) => ({ ...state, autoSequenceEnabled: value }))} />
         </div>
         <div className="mt-4 grid gap-3 md:grid-cols-4">
-          <Field label="Modo por defecto"><select value={fiscalDraft.defaultMode} onChange={(event) => setFiscalDraft((state) => ({ ...state, defaultMode: event.target.value }))} className="input-dark"><option value="normal">Normal sin NCF</option><option value="ncf">NCF</option><option value="ecf">e-CF DGII</option></select></Field>
-          <Field label="Ambiente e-CF"><select value={fiscalDraft.ecfEnvironment} onChange={(event) => setFiscalDraft((state) => ({ ...state, ecfEnvironment: event.target.value }))} className="input-dark"><option value="certification">Certificacion</option><option value="production">Produccion</option></select></Field>
+          <Field label="Modo por defecto"><select id="fiscal-default-mode" value={fiscalDraft.defaultMode} onChange={(event) => setFiscalDraft((state) => ({ ...state, defaultMode: event.target.value }))} className="input-dark"><option value="normal">Normal sin NCF</option><option value="ncf">NCF</option><option value="ecf">e-CF DGII</option></select></Field>
+          <Field label="Ambiente e-CF"><select id="fiscal-ecf-environment" value={fiscalDraft.ecfEnvironment} onChange={(event) => setFiscalDraft((state) => ({ ...state, ecfEnvironment: event.target.value }))} className="input-dark"><option value="certification">Certificacion</option><option value="production">Produccion</option></select></Field>
           <Input type="number" label="Alerta secuencia baja" value={fiscalDraft.alertBeforeSequenceEnds} onChange={(value) => setFiscalDraft((state) => ({ ...state, alertBeforeSequenceEnds: Number(value) }))} />
           <Input type="number" label="Alerta vencimiento dias" value={fiscalDraft.alertBeforeNcfExpirationDays} onChange={(value) => setFiscalDraft((state) => ({ ...state, alertBeforeNcfExpirationDays: Number(value) }))} />
         </div>
@@ -208,7 +208,7 @@ export function SettingsPage() {
       </section>
 
       <section className="grid gap-5 xl:grid-cols-2">
-        <div className="panel rounded-lg p-5">
+        <div>
           <h3 className="font-display text-xl font-bold">Registrar tienda / ubicacion</h3>
           <div className="mt-4 grid gap-3 md:grid-cols-2">
             {['name:Nombre tienda', 'address:Direccion', 'city:Ciudad', 'province:Provincia', 'phone:Telefono', 'warehouse:Almacen', 'register:Caja'].map((item) => { const [key, label] = item.split(':'); return <Input key={key} label={label} value={branchDraft[key]} onChange={(value) => setBranchDraft((state) => ({ ...state, [key]: value }))} /> })}
@@ -216,7 +216,7 @@ export function SettingsPage() {
           <Button className="mt-4" onClick={saveBranch}>Guardar tienda</Button>
           <List items={branches.map((branch) => `${branch.name} · ${branch.city || branch.address}`)} />
         </div>
-        <div className="panel rounded-lg p-5">
+        <div>
           <h3 className="font-display text-xl font-bold">Registrar proveedor</h3>
           <div className="mt-4 grid gap-3 md:grid-cols-2">
             {['name:Nombre', 'rnc:RNC', 'phone:Telefono', 'email:Email'].map((item) => { const [key, label] = item.split(':'); return <Input key={key} label={label} value={supplierDraft[key]} onChange={(value) => setSupplierDraft((state) => ({ ...state, [key]: value }))} /> })}
@@ -227,53 +227,56 @@ export function SettingsPage() {
       </section>
 
       <section className="grid gap-5 xl:grid-cols-2">
-        <div className="panel rounded-lg p-5">
+        <div>
           <h3 className="font-display text-xl font-bold">Categorias editables</h3>
-          <textarea value={categoryText} onChange={(e) => setCategoryText(e.target.value)} className="input-dark mt-4 min-h-24" />
+          <textarea id="categories" value={categoryText} onChange={(e) => setCategoryText(e.target.value)} className="input-dark mt-4 min-h-24" />
           <p className="mt-2 text-sm text-white/45">Separadas por coma. Se aplican en el proximo producto registrado.</p>
           <Button className="mt-4" onClick={() => { try { updateCategories(categoryText.split(',')); toast.success('Categorias guardadas.') } catch (error) { toast.error(error.message) } }}>Guardar categorias</Button>
         </div>
-        <div className="panel rounded-lg p-5">
+        <div>
           <h3 className="mb-4 flex items-center gap-2 font-display text-xl font-bold"><ShieldCheck className="text-emerald-300" /> Secuencias fiscales</h3>
           <div className="space-y-2">
             {taxSequences.map((sequence) => (
               <div key={sequence.id} className="grid gap-2 rounded-lg border border-white/10 bg-white/[0.035] p-2 md:grid-cols-5">
                 <p className="font-bold">{sequence.id}</p>
-                <input type="number" value={sequence.next} onChange={(e) => updateTaxSequence({ type: sequence.id, next: Number(e.target.value) })} className="input-dark" />
-                <input type="number" value={sequence.limit} onChange={(e) => updateTaxSequence({ type: sequence.id, limit: Number(e.target.value) })} className="input-dark" />
-                <input type="date" value={sequence.expiresAt} onChange={(e) => updateTaxSequence({ type: sequence.id, expiresAt: e.target.value })} className="input-dark" />
-                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={sequence.enabled} onChange={(e) => updateTaxSequence({ type: sequence.id, enabled: e.target.checked })} /> Activa</label>
+                <input id={`seq-next-${sequence.id}`} type="number" value={sequence.next} onChange={(e) => updateTaxSequence({ type: sequence.id, next: Number(e.target.value) })} className="input-dark" />
+                <input id={`seq-limit-${sequence.id}`} type="number" value={sequence.limit} onChange={(e) => updateTaxSequence({ type: sequence.id, limit: Number(e.target.value) })} className="input-dark" />
+                <input id={`seq-expires-${sequence.id}`} type="date" value={sequence.expiresAt} onChange={(e) => updateTaxSequence({ type: sequence.id, expiresAt: e.target.value })} className="input-dark" />
+                <label className="flex items-center gap-2 text-sm"><input id={`seq-enabled-${sequence.id}`} type="checkbox" checked={sequence.enabled} onChange={(e) => updateTaxSequence({ type: sequence.id, enabled: e.target.checked })} /> Activa</label>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      <section className="panel rounded-lg p-5">
-        <div className="mb-4 flex items-center gap-3"><Printer className="text-blue-300" /><div><h2 className="font-display text-2xl font-bold">Impresion de etiquetas</h2><p className="text-sm text-white/45">Configuracion para impresoras termicas. 6 metodos: PDF exacto, ZPL, ESC/POS, PNG, WebUSB.</p></div></div>
+      <section>
+        <div className="mb-4 flex items-center gap-3"><Printer className="text-blue-300" /><div><h2 className="font-display text-2xl font-bold">Motor de impresion profesional</h2><p className="text-sm text-white/45">Soporta Zebra, TSC, Honeywell, SATO, Godex, Citizen, Bixolon, Brother, Epson, Xprinter, Rongta y cualquier impresora con protocolo ZPL, EPL, TSPL, CPCL, ESC/POS o PDF vectorial.</p></div></div>
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
-          <Field label="Tamaño etiqueta por defecto"><select value={companyDraft.defaultLabelSize || '3x2'} onChange={(e) => setCompanyDraft((s) => ({ ...s, defaultLabelSize: e.target.value }))} className="input-dark">{Object.entries(LABEL_DIMENSIONS).map(([id, dim]) => <option key={id} value={id}>{dim.name}</option>)}</select></Field>
-          <Field label="Incluir precio en etiquetas"><select value={String(companyDraft.labelShowPrice ?? true)} onChange={(e) => setCompanyDraft((s) => ({ ...s, labelShowPrice: e.target.value === 'true' }))} className="input-dark"><option value="true">Si</option><option value="false">No</option></select></Field>
-          <Field label="Metodo de impresion"><select value={companyDraft.labelPrintMode || 'browser'} onChange={(e) => setCompanyDraft((s) => ({ ...s, labelPrintMode: e.target.value }))} className="input-dark"><option value="browser">PDF medidas exactas</option><option value="zpl">Descargar ZPL</option><option value="usb">ZPL WebUSB directo</option><option value="escpos">Descargar ESC/POS</option><option value="escpos-usb">ESC/POS WebUSB directo</option><option value="png">Descargar imagen PNG</option></select></Field>
-          <Field label="Resolucion DPI"><select value={String(companyDraft.labelDpi || 203)} onChange={(e) => setCompanyDraft((s) => ({ ...s, labelDpi: Number(e.target.value) }))} className="input-dark"><option value="203">203 DPI (estandar)</option><option value="300">300 DPI (alta densidad)</option></select></Field>
+          <Field label="Tamaño etiqueta por defecto"><select id="label-size" value={companyDraft.defaultLabelSize || '3x2'} onChange={(e) => setCompanyDraft((s) => ({ ...s, defaultLabelSize: e.target.value }))} className="input-dark">{Object.entries(LABEL_SIZES).filter(([id]) => !['letter','a4','58mm','80mm'].includes(id)).map(([id, dim]) => <option key={id} value={id}>{dim.name}</option>)}</select></Field>
+          <Field label="Resolucion DPI"><select id="label-dpi" value={String(companyDraft.labelDpi || 203)} onChange={(e) => setCompanyDraft((s) => ({ ...s, labelDpi: Number(e.target.value) }))} className="input-dark">{DPI_VALUES.map(d => <option key={d} value={String(d)}>{d} DPI</option>)}</select></Field>
+          <Field label="Incluir precio"><select id="label-show-price" value={String(companyDraft.labelShowPrice ?? true)} onChange={(e) => setCompanyDraft((s) => ({ ...s, labelShowPrice: e.target.value === 'true' }))} className="input-dark"><option value="true">Si</option><option value="false">No</option></select></Field>
+          <Field label="Metodo de impresion"><select id="label-print-mode" value={companyDraft.labelPrintMode || 'browser'} onChange={(e) => setCompanyDraft((s) => ({ ...s, labelPrintMode: e.target.value }))} className="input-dark"><option value="browser">PDF vectorial</option><option value="zpl">ZPL (Zebra, Xprinter, Rongta)</option><option value="epl">EPL (Zebra older)</option><option value="tspl">TSPL (TSC)</option><option value="cpcl">CPCL (Honeywell, Citizen)</option><option value="escpos">ESC/POS (Epson, Bixolon, Star)</option><option value="usb">ZPL WebUSB directo</option><option value="escpos-usb">ESC/POS WebUSB directo</option><option value="png">Imagen PNG</option></select></Field>
         </div>
         <details className="mt-4 rounded-lg border border-white/10 bg-white/[0.035] p-3">
-          <summary className="cursor-pointer text-sm font-bold text-white/70">Impresoras compatibles</summary>
+          <summary className="cursor-pointer text-sm font-bold text-white/70">Impresoras compatibles y protocolos</summary>
           <div className="mt-3 grid gap-3 text-sm text-white/60 md:grid-cols-2 lg:grid-cols-3">
-            <div><p className="font-bold text-white">2connet</p><p>2C-LP427B (4.25", ZPL), 2C-LP281B (2.12", 203DPI), 2C-LP281E (2.12", 300DPI)</p></div>
-            <div><p className="font-bold text-white">Agiler</p><p>AGI-PR4000UB (4", USB+BT), AGI-PR3000U (4", USB), PR7000ULWBT (3", USB+BT+WiFi+LAN)</p></div>
-            <div><p className="font-bold text-white">Epson</p><p>ColorWorks CW-C4000/C6000A (4", inyeccion tinta color), LabelWorks LW-PX300 (portatil)</p></div>
+            <div><p className="font-bold text-white">ZPL</p><p>Zebra, Xprinter, Rongta, 2connet (2C-LP427B, 2C-LP281B/E), Agiler (AGI-PR4000UB, PR3000U)</p></div>
+            <div><p className="font-bold text-white">TSPL</p><p>TSC, Printronix Auto ID, SATO (parte)</p></div>
+            <div><p className="font-bold text-white">EPL</p><p>Zebra ZPL-II legacy (LP2824+, GK420)</p></div>
+            <div><p className="font-bold text-white">CPCL</p><p>Honeywell (Intermec), Citizen, Godex</p></div>
+            <div><p className="font-bold text-white">ESC/POS</p><p>Epson TM, Bixolon, Star Micronics, Brother (QW), genericas</p></div>
+            <div><p className="font-bold text-white">PDF vectorial</p><p>Cualquier impresora via dialogo nativo del sistema operativo</p></div>
           </div>
         </details>
-        <p className="mt-3 text-xs text-white/40">Para impresion USB directa use Chrome/Edge con WebUSB. Para otras impresoras descargue el archivo ZPL y envielo con ZebraNet Bridge, BarTender o la herramienta del fabricante.</p>
+        <p className="mt-3 text-xs text-white/40">Para impresion USB directa use Chrome/Edge con WebUSB. Para ZPL/EPL/TSPL/CPCL descargue el archivo y envielo con ZebraNet Bridge, BarTender o la herramienta del fabricante. El motor usa milimetros reales con calibracion avanzada (offset, escala, rotacion, compensacion de corte).</p>
       </section>
 
-      <section className="panel rounded-lg p-5">
+      <section>
         <h3 className="font-display text-xl font-bold">Auditoria reciente</h3>
         <div className="mt-3 grid gap-2">{auditLogs.slice(0, 8).map((log) => <div key={log.id} className="rounded-lg bg-white/[0.035] p-3 text-sm"><p className="font-bold">{log.action} · {log.module}</p><p className="text-white/45">{log.user} · {log.date}</p></div>)}</div>
       </section>
 
-      <section className="panel rounded-lg p-5">
+      <section>
         <div className="mb-4 flex items-center gap-3"><ShieldCheck className="text-red-300" /><div><h2 className="font-display text-2xl font-bold">Integridad de datos</h2><p className="text-sm text-white/45">Detecta y elimina registros huerfanos: facturas con estados invalidos, cuentas por cobrar sin factura, pagos huérfanos.</p></div></div>
         <div className="flex flex-wrap gap-3">
           <Button variant="secondary" icon={ShieldCheck} onClick={() => {
@@ -316,8 +319,9 @@ function Toggle({ label, checked, onChange }) {
   )
 }
 
-function Input({ label, value, onChange, type = 'text' }) {
-  return <label><span className="label-dark">{label}</span><input type={type} value={value || ''} onChange={(e) => onChange(e.target.value)} className="input-dark" /></label>
+function Input({ label, value, onChange, type = 'text', id }) {
+  const inputId = id || (label ? label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') : undefined)
+  return <label><span className="label-dark">{label}</span><input id={inputId} type={type} value={value || ''} onChange={(e) => onChange(e.target.value)} className="input-dark" /></label>
 }
 function List({ items }) {
   return <div className="mt-4 space-y-2">{items.map((item) => <p key={item} className="rounded-lg bg-white/[0.035] p-2 text-sm text-white/60">{item}</p>)}</div>

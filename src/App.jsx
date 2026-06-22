@@ -91,6 +91,7 @@ export default function App() {
             <Route path="/movimientos-financieros" element={<FinancialMovements />} />
             <Route path="/cxp" element={<Payables />} />
             <Route path="/caja" element={<CashDesk />} />
+            <Route path="/movimientos-manuales" element={<CashDesk manualOnly />} />
             <Route path="/contabilidad" element={<AccountingJournal />} />
             <Route path="/servicio" element={<ServiceDesk />} />
             <Route path="/fiscal" element={<Fiscal />} />
