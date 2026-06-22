@@ -38,6 +38,10 @@ let writeInFlight = false
 let syncSuspended = false
 let syncRetries = 0
 let migrationDone = false
+let snapshotRetries = {}
+let snapshotResubTimers = {}
+let lastErrorTime = 0
+const ERROR_COOLDOWN_MS = 15000
 
 // ─── Path helpers ────────────────────────────────────────────────
 
@@ -96,6 +100,9 @@ export function startErpRealtimeSync(user) {
 export function stopErpRealtimeSync() {
   if (syncTimer) window.clearTimeout(syncTimer)
   syncTimer = null
+  Object.values(snapshotResubTimers).forEach(clearTimeout)
+  snapshotResubTimers = {}
+  snapshotRetries = {}
   unsubscribers.forEach((fn) => fn())
   unsubscribers = []
   unsubscribeStore?.()
@@ -109,6 +116,7 @@ export function stopErpRealtimeSync() {
   writeInFlight = false
   syncSuspended = false
   migrationDone = false
+  lastErrorTime = 0
 }
 
 // ─── Initialization ──────────────────────────────────────────────
@@ -150,25 +158,27 @@ async function initializeUserSync(user) {
   useERPStore.setState((state) => ({ ...state, ...loaded, syncHydrated: true }))
   applyingRemote = false
 
-  // 4. Subscribe to real-time changes on each collection
+  // 4. Subscribe to real-time changes on each collection with auto-reconnect
   for (const name of COLLECTION_NAMES) {
-    const unsub = onSnapshot(colRef(uid, name), (snapshot) => {
-      if (snapshot.metadata.hasPendingWrites) return
-      handleRemoteCollection(name, snapshot)
-    }, (error) => handleSyncError(error))
-    unsubscribers.push(unsub)
+    subscribeWithRetry(name, () =>
+      onSnapshot(colRef(uid, name), (snapshot) => {
+        if (snapshot.metadata.hasPendingWrites) return
+        handleRemoteCollection(name, snapshot)
+      }, (error) => handleSnapshotError(name, error))
+    )
   }
 
   for (const name of SINGLETON_NAMES) {
-    const unsub = onSnapshot(docRef_(uid, '_singletons', name), (snapshot) => {
-      if (snapshot.metadata.hasPendingWrites) return
-      if (snapshot.exists()) {
-        applyingRemote = true
-        useERPStore.setState({ [name]: snapshot.data()?.value ?? null })
-        applyingRemote = false
-      }
-    }, (error) => handleSyncError(error))
-    unsubscribers.push(unsub)
+    subscribeWithRetry(name, () =>
+      onSnapshot(docRef_(uid, '_singletons', name), (snapshot) => {
+        if (snapshot.metadata.hasPendingWrites) return
+        if (snapshot.exists()) {
+          applyingRemote = true
+          useERPStore.setState({ [name]: snapshot.data()?.value ?? null })
+          applyingRemote = false
+        }
+      }, (error) => handleSnapshotError(name, error))
+    )
   }
 
   previousState = pickSyncState(useERPStore.getState())
@@ -295,6 +305,13 @@ function handleRemoteCollection(name, snapshot) {
   useERPStore.setState({ [name]: merged })
   previousState = pickSyncState(useERPStore.getState())
   applyingRemote = false
+
+  // Snapshot received successfully — clear error with cooldown to prevent flickering
+  const now = Date.now()
+  if (remoteItems.length > 0 && now - lastErrorTime > ERROR_COOLDOWN_MS) {
+    lastErrorTime = now
+    useERPStore.setState({ syncStatus: 'synced', syncError: '' })
+  }
 }
 
 // ─── Local write direction ───────────────────────────────────────
@@ -325,7 +342,14 @@ async function flushChanges() {
     await writeDiff(activeUid, previousState || {}, nextState)
     previousState = nextState
     syncRetries = 0
-    setSyncMeta({ syncStatus: 'synced', syncError: '' })
+    // Clear error with cooldown to prevent flickering on transient issues
+    const now = Date.now()
+    if (now - lastErrorTime > ERROR_COOLDOWN_MS) {
+      lastErrorTime = now
+      setSyncMeta({ syncStatus: 'synced', syncError: '' })
+    } else {
+      setSyncMeta({ syncStatus: 'synced' })
+    }
   } catch (error) {
     if (isBlocking(error)) {
       suspendSync(error)
@@ -460,8 +484,60 @@ function describeError(error) {
   return error?.syncPath ? `${msg} (${error.syncPath})` : msg
 }
 
+function subscribeWithRetry(name, subscribeFn) {
+  if (snapshotResubTimers[name]) {
+    clearTimeout(snapshotResubTimers[name])
+    delete snapshotResubTimers[name]
+  }
+  if (snapshotRetries[name]) snapshotRetries[name].count = 0
+  const unsub = subscribeFn()
+  unsubscribers.push(unsub)
+}
+
+function handleSnapshotError(name, error) {
+  if (!snapshotRetries[name]) snapshotRetries[name] = { count: 0 }
+  snapshotRetries[name].count++
+  const delay = Math.min(30000, Math.pow(2, snapshotRetries[name].count) * 1000)
+
+  const now = Date.now()
+  if (now - lastErrorTime > ERROR_COOLDOWN_MS) {
+    lastErrorTime = now
+    setSyncMeta({
+      syncStatus: 'error',
+      syncError: `Error de conexion (${name}): ${describeError(error)}. Reintentando en ${Math.round(delay/1000)}s...`
+    })
+  }
+
+  snapshotResubTimers[name] = setTimeout(() => {
+    delete snapshotResubTimers[name]
+    const uid = activeUid
+    if (!uid) return
+    if (COLLECTION_NAMES.includes(name)) {
+      const unsub = onSnapshot(colRef(uid, name), (snapshot) => {
+        if (snapshot.metadata.hasPendingWrites) return
+        handleRemoteCollection(name, snapshot)
+      }, (err) => handleSnapshotError(name, err))
+      unsubscribers.push(unsub)
+    } else if (SINGLETON_NAMES.includes(name)) {
+      const unsub = onSnapshot(docRef_(uid, '_singletons', name), (snapshot) => {
+        if (snapshot.metadata.hasPendingWrites) return
+        if (snapshot.exists()) {
+          applyingRemote = true
+          useERPStore.setState({ [name]: snapshot.data()?.value ?? null })
+          applyingRemote = false
+        }
+      }, (err) => handleSnapshotError(name, err))
+      unsubscribers.push(unsub)
+    }
+  }, delay)
+}
+
 function handleSyncError(error) {
-  setSyncMeta({ syncStatus: 'error', syncError: describeError(error) })
+  const now = Date.now()
+  if (now - lastErrorTime > ERROR_COOLDOWN_MS) {
+    lastErrorTime = now
+    setSyncMeta({ syncStatus: 'error', syncError: `Error de sincronizacion: ${describeError(error)}` })
+  }
 }
 
 function setSyncMeta(patch) {
