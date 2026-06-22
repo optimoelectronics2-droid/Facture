@@ -1,4 +1,5 @@
-import { useDeferredValue, useMemo, useState } from 'react'
+import { useDeferredValue, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Barcode, ChevronDown, CreditCard, FileCheck2, Minus, Plus, Save, Search, Trash2, UserPlus } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { Modal } from '../../components/ui/Modal'
@@ -354,7 +355,7 @@ export function InvoiceForm({ initialInvoice, duplicateOf, onDone }) {
         </section>
       </main>
 
-      <aside className="h-fit xl:sticky xl:top-24">
+      <aside className="h-fit xl:sticky xl:top-24 z-10">
         <p className="text-xs font-extrabold uppercase text-blue-200/80">Resumen</p>
         <div className="mt-4 space-y-2">
           <Line label="Subtotal" value={totals.subtotal} />
@@ -465,11 +466,31 @@ function ProductSearch({ products, onSelect }) {
     }
   }
 
+  const [menuRect, setMenuRect] = useState(null)
+  const inputRef = useRef(null)
+  const containerRef = useRef(null)
+
+  useLayoutEffect(() => {
+    if (!query || !containerRef.current) return undefined
+    const updatePosition = () => {
+      const rect = containerRef.current.getBoundingClientRect()
+      setMenuRect({ top: rect.bottom + 4, left: rect.left, width: rect.width })
+    }
+    updatePosition()
+    window.addEventListener('resize', updatePosition)
+    window.addEventListener('scroll', updatePosition, true)
+    return () => {
+      window.removeEventListener('resize', updatePosition)
+      window.removeEventListener('scroll', updatePosition, true)
+    }
+  }, [query])
+
   return (
-    <div>
+    <div ref={containerRef}>
       <div className="flex items-center gap-3 rounded-lg border border-white/10 bg-black/20 px-4 py-3">
         <Search className="text-blue-200" size={20} />
         <input
+          ref={inputRef}
           id="invoice-product-search"
           name="invoice-product-search"
           value={query}
@@ -480,27 +501,48 @@ function ProductSearch({ products, onSelect }) {
         />
         <Barcode className="text-white/35" size={20} />
       </div>
-      <div className="mt-3 grid gap-2">
-        {!normalize(deferredQuery) ? (
-          <p className="rounded-lg border border-dashed border-white/10 bg-white/[0.025] px-3 py-4 text-center text-sm text-white/40">Escribe o escanea un producto para ver resultados.</p>
-        ) : results.length ? results.map((product, index) => (
-          <button key={`${product.id}-${index}`} type="button" onMouseEnter={() => setActiveIndex(index)} onClick={() => choose(product)} className={`flex items-center gap-3 rounded-lg border p-3 text-left transition ${activeIndex === index ? 'border-blue-400 bg-blue-500/15' : 'border-white/10 bg-white/[0.035] hover:bg-white/[0.06]'}`}>
-            <div className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-lg bg-blue-500/15 text-blue-100">
-              {product.image ? <img src={product.image} alt="" className="h-full w-full object-cover" /> : <Barcode size={20} />}
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="truncate font-bold text-white">{product.name}</p>
-              <p className="truncate text-xs text-white/45">{product.sku || product.barcode || 'Sin codigo'} · {product.category || 'Categoria'} · {product.brand || 'Marca'}</p>
-            </div>
-            <div className="text-right">
-              <p className="font-display text-lg font-bold">{currency.format(product.price || 0)}</p>
-              <p className={Number(product.stock || 0) > 0 || product.category === 'Servicios' ? 'text-xs text-emerald-300' : 'text-xs text-red-300'}>Stock {product.category === 'Servicios' ? 'servicio' : product.stock || 0}</p>
-            </div>
-          </button>
-        )) : (
-          <p className="rounded-lg border border-white/10 bg-white/[0.025] px-3 py-4 text-center text-sm text-white/40">No hay productos con esa busqueda.</p>
-        )}
-      </div>
+      {query.trim() && results.length > 0 && menuRect ? createPortal(
+        <div
+          className="fixed z-[9999] max-h-80 overflow-y-auto rounded-lg border border-white/10 bg-[#111118] p-2 shadow-2xl shadow-black/60"
+          style={{ top: menuRect.top, left: menuRect.left, width: menuRect.width }}
+        >
+          {results.map((product, index) => (
+            <button
+              key={`${product.id}-${index}`}
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onMouseEnter={() => setActiveIndex(index)}
+              onClick={() => choose(product)}
+              className={`flex w-full items-center gap-3 rounded-md p-2 text-left transition ${activeIndex === index ? 'bg-blue-500/20' : 'hover:bg-white/[0.06]'}`}
+            >
+              <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-blue-500/15 text-blue-100">
+                {product.image ? <img src={product.image} alt="" className="h-full w-full object-cover rounded-lg" /> : <Barcode size={18} />}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-bold text-white">{product.name}</p>
+                <p className="truncate text-xs text-white/45">{product.sku || product.barcode || 'Sin codigo'} · {product.category || ''} · {product.brand || ''}</p>
+              </div>
+              <div className="text-right shrink-0">
+                <p className="font-display font-bold text-white">{currency.format(product.price || 0)}</p>
+                <p className={Number(product.stock || 0) > 0 || product.category === 'Servicios' ? 'text-xs text-emerald-300' : 'text-xs text-red-300'}>
+                  Stock {product.category === 'Servicios' ? 'ilimitado' : product.stock || 0}
+                </p>
+              </div>
+            </button>
+          ))}
+        </div>,
+        document.body
+      ) : null}
+      {!query.trim() ? (
+        <p className="mt-3 rounded-lg border border-dashed border-white/10 bg-white/[0.025] px-3 py-4 text-center text-sm text-white/40">
+          Escribe o escanea un producto para ver resultados.
+        </p>
+      ) : null}
+      {query.trim() && results.length === 0 ? (
+        <p className="mt-3 rounded-lg border border-white/10 bg-white/[0.025] px-3 py-4 text-center text-sm text-white/40">
+          No hay productos con esa busqueda.
+        </p>
+      ) : null}
     </div>
   )
 }

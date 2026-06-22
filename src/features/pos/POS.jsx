@@ -96,6 +96,16 @@ export function POS() {
     return () => window.removeEventListener('keydown', handler)
   })
 
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (productInputRef.current && !productInputRef.current.closest('.relative')?.contains(event.target)) {
+        setQuery('')
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
   function addProduct(product) {
     if (product.category !== 'Servicios' && Number(product.stock || 0) <= 0) {
       toast.error(`${product.name} no tiene stock disponible.`)
@@ -221,7 +231,7 @@ export function POS() {
 
   return (
     <div className="grid gap-5 xl:grid-cols-[1.05fr_.95fr]">
-      <section className="space-y-4">
+      <section className="min-w-0 space-y-4">
         <div>
           <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
             <div>
@@ -236,9 +246,35 @@ export function POS() {
             </div>
           </div>
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-            <div className="flex flex-1 items-center gap-3 rounded-lg border border-white/10 bg-black/20 px-3 py-3">
-              <ScanBarcode size={19} className="text-blue-300" />
-              <input ref={productInputRef} id="pos-query" name="pos-query" value={query} onChange={(event) => setQuery(event.target.value)} className="w-full bg-transparent text-sm outline-none placeholder:text-white/35" placeholder="Escanea codigo de barras, SKU, IMEI o busca producto" />
+            <div className="relative flex-1">
+              <div className="flex items-center gap-3 rounded-lg border border-white/10 bg-black/20 px-3 py-3">
+                <ScanBarcode size={19} className="text-blue-300" />
+                <input ref={productInputRef} id="pos-query" name="pos-query" value={query} onChange={(event) => setQuery(event.target.value)} className="w-full bg-transparent text-sm outline-none placeholder:text-white/35" placeholder="Escanea codigo de barras, SKU, IMEI o busca producto" />
+              </div>
+              {filtered.length > 0 && (
+                <div className="absolute left-0 right-0 top-full z-[9999] mt-1 max-h-80 overflow-y-auto rounded-lg border border-white/10 bg-[#111118] p-2 shadow-2xl">
+                  {filtered.map((product) => (
+                    <button
+                      key={product.id}
+                      type="button"
+                      onClick={() => { addProduct(product); setQuery('') }}
+                      className="flex w-full items-center justify-between rounded-md px-3 py-2 text-left hover:bg-white/[0.07]"
+                    >
+                      <div>
+                        <p className="font-bold text-white">{product.name}</p>
+                        <p className="text-xs text-white/45">{product.sku} · Stock: {product.stock}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-bold text-white">{currency.format(product.price)}</p>
+                        <p className={product.taxable ? 'text-xs font-bold text-blue-300' : 'text-xs font-bold text-emerald-300'}>{product.taxable ? 'ITBIS' : 'Exento'}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {!query.trim() && (
+                <p className="mt-2 text-xs text-white/40">Busca o escanea un producto para comenzar.</p>
+              )}
             </div>
             <select id="pos-ncf-type" name="pos-ncf-type" value={ncfType} onChange={(event) => changeNcfType(event.target.value)} className="rounded-lg border border-white/10 bg-[#111118] px-3 py-3 text-sm font-bold outline-none">
               <option value="NO_FISCAL">Sin comprobante</option>
@@ -252,27 +288,9 @@ export function POS() {
             </select>
           </div>
         </div>
-        <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
-          {filtered.map((product) => (
-            <button key={product.id} onClick={() => addProduct(product)} className="panel rounded-lg p-4 text-left transition hover:border-blue-400/50">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="font-bold text-white">{product.name}</p>
-                  <p className="mt-1 text-xs text-white/45">{product.sku} · {product.location}</p>
-                </div>
-                <span className="rounded-md bg-white/[0.06] px-2 py-1 text-xs font-bold text-white/55">{product.stock}</span>
-              </div>
-              <div className="mt-4 flex items-center justify-between">
-                <span className="font-display text-xl font-bold">{currency.format(product.price)}</span>
-                <span className={product.taxable ? 'text-xs font-bold text-blue-300' : 'text-xs font-bold text-emerald-300'}>{product.taxable ? 'ITBIS' : 'Exento'}</span>
-              </div>
-            </button>
-          ))}
-          {!query.trim() ? <p className="rounded-lg border border-dashed border-white/10 bg-white/[0.025] p-5 text-center text-sm font-bold text-white/40 md:col-span-2 2xl:col-span-3">Busca o escanea un producto para comenzar.</p> : null}
-        </div>
       </section>
 
-      <section className="panel rounded-lg p-4">
+      <section className="panel min-w-0 rounded-lg p-4">
         <h2 className="font-display text-2xl font-bold">Venta mostrador</h2>
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           <div className="relative flex gap-2">
@@ -286,7 +304,7 @@ export function POS() {
                 placeholder="Buscar cliente por nombre, RNC, cedula, telefono o WhatsApp"
               />
               {customerResults.length ? (
-                <div className="absolute left-0 right-12 top-12 z-30 max-h-72 overflow-auto rounded-lg border border-white/10 bg-[#111118] p-2 shadow-2xl">
+                <div className="absolute left-0 right-12 top-12 z-[9999] max-h-72 overflow-auto rounded-lg border border-white/10 bg-[#111118] p-2 shadow-2xl">
                   {customerResults.map((item) => (
                     <button
                       key={item.id}
