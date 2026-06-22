@@ -1949,7 +1949,7 @@ export const useERPStore = create(
 
       verifyDataIntegrity() {
         const state = get()
-        const invalidStatuses = new Set(['deleted', 'eliminado', 'cancelled', 'canceled', 'cancelado', 'cancelada', 'voided', 'anulada', 'anulado'])
+        const invalidStatuses = new Set(['deleted', 'eliminado', 'voided', 'anulada', 'anulado'])
         const report = { orphanInvoices: 0, orphanReceivables: 0, orphanPayments: 0, orphanInventoryMovements: 0, orphanFinancialMovements: 0, orphanCreditNotes: 0, invalidStatusInvoices: 0, details: [] }
         const validInvoiceIds = new Set(state.invoices.map((inv) => inv.id))
         const validProductIds = new Set(state.products.map((p) => p.id))
@@ -1997,7 +1997,7 @@ export const useERPStore = create(
 
       cleanupOrphanData() {
         const state = get()
-        const invalidStatuses = new Set(['deleted', 'eliminado', 'cancelled', 'canceled', 'cancelado', 'cancelada', 'voided', 'anulada', 'anulado'])
+        const invalidStatuses = new Set(['deleted', 'eliminado', 'voided', 'anulada', 'anulado'])
         const removed = { invoices: 0, receivables: 0, payments: 0, inventoryMovements: 0, financialMovements: 0, creditNotes: 0 }
         const allProductIds = new Set(state.products.map((p) => p.id))
         const validInvoiceIds = new Set()
@@ -2036,7 +2036,11 @@ export const useERPStore = create(
         }
 
         set((current) => ({
-          invoices: current.invoices.filter((inv) => !invalidStatuses.has(String(inv.status || '').toLowerCase())),
+          invoices: current.invoices.map((inv) =>
+            invalidStatuses.has(String(inv.status || '').toLowerCase())
+              ? { ...inv, deletedAt: inv.deletedAt || new Date().toISOString(), deleteReason: 'Auto-cleanup: status invalido' }
+              : inv
+          ),
           receivables: (current.receivables || []).filter((rec) => {
             const invoice = current.invoices.find((inv) => inv.id === rec.invoiceId)
             if (!invoice) return false
@@ -2230,7 +2234,7 @@ export const useERPStore = create(
             try {
               var report = state.verifyDataIntegrity()
               var total = (report.invalidStatusInvoices||0)+(report.orphanReceivables||0)+(report.orphanPayments||0)+(report.orphanInventoryMovements||0)+(report.orphanFinancialMovements||0)+(report.orphanCreditNotes||0)
-              if (total > 0) state.cleanupOrphanData()
+              if (total > 0) console.warn('[ERP] Inconsistencias detectadas al cargar, NO se eliminan datos automaticamente:', report)
               state.recalculateFinancialFields()
               state.refreshReportStats()
             } catch(e) { console.error('Post-hydration cleanup error:', e) }
