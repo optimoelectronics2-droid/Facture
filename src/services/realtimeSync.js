@@ -135,9 +135,16 @@ async function initializeUserSync(user) {
   for (const name of COLLECTION_NAMES) {
     try {
       const snapshot = await getDocs(colRef(uid, name))
-      loaded[name] = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
+      const docs = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
+      // GUARD: Never replace local data with empty remote results on initial load.
+      // Firestore may return an empty snapshot during QUIC protocol errors,
+      // network interruptions, or transient permission issues.
+      if (docs.length === 0 && Array.isArray(preloadedState[name]) && preloadedState[name].length > 0) {
+        loaded[name] = [...preloadedState[name]]
+      } else {
+        loaded[name] = docs
+      }
     } catch (error) {
-      // On error, preserve existing local data instead of clearing it
       loaded[name] = Array.isArray(preloadedState[name]) ? [...preloadedState[name]] : []
     }
   }
