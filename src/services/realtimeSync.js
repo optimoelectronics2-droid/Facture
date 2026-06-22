@@ -122,13 +122,15 @@ async function initializeUserSync(user) {
 
   // 2. Load all collections
   setSyncMeta({ syncStatus: 'syncing' })
+  const preloadedState = useERPStore.getState()
   const loaded = {}
   for (const name of COLLECTION_NAMES) {
     try {
       const snapshot = await getDocs(colRef(uid, name))
       loaded[name] = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
     } catch (error) {
-      loaded[name] = []
+      // On error, preserve existing local data instead of clearing it
+      loaded[name] = Array.isArray(preloadedState[name]) ? [...preloadedState[name]] : []
     }
   }
   for (const name of SINGLETON_NAMES) {
@@ -254,6 +256,14 @@ function handleRemoteCollection(name, snapshot) {
   const localItems = Array.isArray(localState[name]) ? localState[name] : []
   const remoteItems = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
 
+  // GUARD: Never replace local data with empty remote results
+  // This prevents data loss when Firestore reconnects after a network
+  // error (QUIC protocol failure, etc.) and returns an empty snapshot.
+  if (remoteItems.length === 0 && localItems.length > 0 && !pendingState) {
+    applyingRemote = false
+    return
+  }
+
   const localMap = new Map(localItems.map((i) => [i.id, i]))
   const remoteMap = new Map(remoteItems.map((i) => [i.id, i]))
 
@@ -276,11 +286,10 @@ function handleRemoteCollection(name, snapshot) {
     merged.push(pendingState && localMap.has(item.id) ? localMap.get(item.id) : item)
   }
 
-  // 2. Local-only items: keep only if we have pending local writes
-  if (pendingState) {
-    for (const item of localItems) {
-      if (item?.id && !remoteMap.has(item.id)) merged.push(item)
-    }
+  // 2. Local-only items: keep items that exist locally but not in remote snapshot
+  // This covers the case where the remote snapshot is delayed or incomplete
+  for (const item of localItems) {
+    if (item?.id && !remoteMap.has(item.id)) merged.push(item)
   }
 
   useERPStore.setState({ [name]: merged })
