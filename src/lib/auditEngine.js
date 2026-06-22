@@ -87,7 +87,6 @@ export function rebuildReports(data) {
   var monthInvoices = invoices.filter(function(inv) { return monthKey(invoiceDate(inv)) === monthKeyVal })
   var weekInvoices = invoices.filter(function(inv) { return inRange(invoiceDate(inv), weekStart, nowDate) })
   var yearInvoices = invoices.filter(function(inv) { return annualKey(invoiceDate(inv)) === annualKey(nowDate) })
-  var yesterdayInvoices = invoices.filter(function(inv) { return dayKey(invoiceDate(inv)) === dayKey(addDays(nowDate, -1)) })
 
   var creditInvoices = invoices.filter(function(inv) {
     return (inv.payments || []).some(function(p) { return isCreditMethod(p.method) }) || isCreditMethod(inv.paymentMethod)

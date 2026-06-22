@@ -245,7 +245,7 @@ function Status({ item }) {
   return <span className="inline-flex items-center gap-2"><span className="h-2 w-8 rounded-full" style={{ background: color }} />{text}</span>
 }
 
-function Actions({ row, onPay, onEdit, onDelete, onRemind, onHistory, customers, company }) {
+function Actions({ row, onPay, onEdit, onDelete, onRemind, onHistory, onStatus, customers, company }) {
   const [menu, setMenu] = useState(false)
   return (
     <div className="flex gap-1">

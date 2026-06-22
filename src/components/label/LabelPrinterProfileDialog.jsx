@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { DPI_VALUES, createPrinterProfile, createCalibrationLabel } from '../../lib/labelEngine.js'
 import { renderDesign, downloadOutput, createLabelPdfAsync } from '../../lib/labelOutput.js'
 import { detectProtocolFromVendor, sendToUsbPrinter, sendToSerialPort, getBaudRates } from '../../services/barcodeLabelService.js'
@@ -13,8 +13,21 @@ const OUTPUT_METHODS = [
   { id: 'escpos', label: 'Archivo ESC/POS', desc: 'Epson TM, Bixolon, Star y termicas genericas' },
 ]
 
+function createDefaultProfile() {
+  return createPrinterProfile({ name: 'Perfil por defecto', protocol: 'pdf', dpi: 203 })
+}
+
+function loadStoredProfiles(initialProfiles) {
+  if (initialProfiles && initialProfiles.length) return initialProfiles
+  try {
+    const stored = JSON.parse(localStorage.getItem('labelPrinterProfiles') || '[]')
+    if (stored.length > 0) return stored
+  } catch { /* ignore */ }
+  return [createDefaultProfile()]
+}
+
 export default function LabelPrinterProfileDialog({ design, profiles: initialProfiles, onSave, onClose }) {
-  const [profiles, setProfiles] = useState(() => initialProfiles && initialProfiles.length ? initialProfiles : [createDefaultProfile()])
+  const [profiles, setProfiles] = useState(() => loadStoredProfiles(initialProfiles))
   const [selectedId, setSelectedId] = useState(profiles[0]?.id)
   const [profile, setProfile] = useState(() => profiles[0] || createDefaultProfile())
   const [deviceInfo, setDeviceInfo] = useState('')
@@ -24,10 +37,6 @@ export default function LabelPrinterProfileDialog({ design, profiles: initialPro
   const [connectionStatus, setConnectionStatus] = useState('')
 
   const activeProfile = profiles.find(p => p.id === selectedId) || profile
-
-  function createDefaultProfile() {
-    return createPrinterProfile({ name: 'Perfil por defecto', protocol: 'pdf', dpi: 203 })
-  }
 
   function updateProfile(patch) {
     const updated = { ...activeProfile, ...patch, calibration: { ...activeProfile.calibration, ...(patch.calibration || {}) } }
@@ -111,16 +120,6 @@ export default function LabelPrinterProfileDialog({ design, profiles: initialPro
     onSave && onSave(profiles)
     onClose && onClose()
   }
-
-  // Load profiles from localStorage on mount
-  useEffect(() => {
-    const stored = JSON.parse(localStorage.getItem('labelPrinterProfiles') || '[]')
-    if (stored.length > 0 && (!initialProfiles || !initialProfiles.length)) {
-      setProfiles(stored)
-      setSelectedId(stored[0].id)
-      setProfile(stored[0])
-    }
-  }, [])
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">

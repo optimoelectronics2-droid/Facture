@@ -756,7 +756,7 @@ function summaryRow(profitReport, filters) {
 
 function itemProfit(invoice) {
   if (invoice.items?.length) return invoice.items.reduce((s, item) => s + Number(item.net || 0) - Number(item.cost || 0) * Number(item.quantity || 0), 0)
-  return invoice.totals?.profit ?? invoice.totals?.subtotal - invoice.totals?.cost ?? 0
+  return invoice.totals?.profit ?? (invoice.totals?.subtotal ?? 0) - (invoice.totals?.cost ?? 0)
 }
 
 function invoiceToExcelRow(invoice) {

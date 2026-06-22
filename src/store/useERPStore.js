@@ -2223,7 +2223,7 @@ export const useERPStore = create(
       onRehydrateStorage: () => (state, error) => {
         if (error) {
           console.error('[Persist] Error de rehidratacion, limpiando storage:', error)
-          try { localStorage.removeItem('trifusion-erp-state-v2') } catch {}
+          try { localStorage.removeItem('trifusion-erp-state-v2') } catch { /* ignore if key doesn't exist */ }
           window.location.reload()
         } else if (state && state.invoices && state.verifyDataIntegrity) {
           setTimeout(function() {

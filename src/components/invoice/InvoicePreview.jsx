@@ -252,7 +252,7 @@ async function sharePdfViaWhatsApp(invoice, customer, company) {
   const blob = pdf.output('blob')
   const file = new File([blob], `${title}.pdf`, { type: 'application/pdf' })
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
-    try { await navigator.share({ files: [file], title, text }); return } catch {}
+    try { await navigator.share({ files: [file], title, text }); return } catch { /* fall through to download */ }
   }
   downloadBlob(blob, `${title}.pdf`)
   if (phone) window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text + `\n\nPDF descargado: ${title}.pdf`)}`)
@@ -268,7 +268,7 @@ async function sharePdfViaEmail(invoice, customer, company) {
   const blob = pdf.output('blob')
   const file = new File([blob], `${title}.pdf`, { type: 'application/pdf' })
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
-    try { await navigator.share({ files: [file], title: subject, text }); return } catch {}
+    try { await navigator.share({ files: [file], title: subject, text }); return } catch { /* fall through to download */ }
   }
   downloadBlob(blob, `${title}.pdf`)
   window.location.href = `mailto:${customer?.email || company?.email || ''}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text + `\n\nPDF adjunto: ${title}.pdf (descargar del enlace)`)}`

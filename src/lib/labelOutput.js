@@ -112,7 +112,7 @@ export function renderDesignToPdf(doc, design, calibration) {
       let quietZoneMm = 2
       let avail = Math.max(1, w - quietZoneMm * 2)
       let scale = avail / bc.width
-      if (scale < 0.1) { quietZoneMm = 1; avail = Math.max(1, w - 2); scale = avail / bc.width }
+      if (scale < 0.1) { quietZoneMm = 1; avail = Math.max(1, w - quietZoneMm * 2); scale = avail / bc.width }
       if (scale < 0.08) { avail = Math.max(1, w); scale = avail / bc.width }
       const totalWidth = bc.width * scale
       const startX = x + (w - totalWidth) / 2

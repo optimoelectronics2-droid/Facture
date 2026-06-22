@@ -67,8 +67,7 @@ function copySafeComputedStyles(source, target) {
     if (!value) return
     try {
       target.style.setProperty(property, value, computed.getPropertyPriority(property))
-    } catch {
-    }
+    } catch { /* some computed properties are invalid as inline style */ }
   })
 }
 

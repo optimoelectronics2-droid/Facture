@@ -6,7 +6,6 @@ import {
   getDocs,
   onSnapshot,
   serverTimestamp,
-  setDoc,
   writeBatch,
 } from 'firebase/firestore'
 import { auth } from '../lib/firebase'
@@ -46,10 +45,6 @@ const ERROR_COOLDOWN_MS = 15000
 
 // ─── Path helpers ────────────────────────────────────────────────
 
-function colPath(uid, name) {
-  return `accounts/${uid}/${name}`
-}
-
 function colRef(uid, name) {
   return firestoreCollection(db, 'accounts', uid, name)
 }
@@ -60,10 +55,6 @@ function docRef_ (uid, name, docId) {
 
 function oldStateDocRef(uid) {
   return doc(db, 'accounts', uid, 'erp', 'state')
-}
-
-function oldStateDocPath(uid) {
-  return `accounts/${uid}/erp/state`
 }
 
 // ─── Public API ──────────────────────────────────────────────────
@@ -146,7 +137,7 @@ async function initializeUserSync(user) {
       } else {
         loaded[name] = docs
       }
-    } catch (error) {
+    } catch {
       loaded[name] = Array.isArray(preloadedState[name]) ? [...preloadedState[name]] : []
     }
   }
@@ -154,7 +145,7 @@ async function initializeUserSync(user) {
     try {
       const d = await getDoc(docRef_(uid, '_singletons', name))
       loaded[name] = d.exists() ? d.data()?.value : null
-    } catch (error) {
+    } catch {
       loaded[name] = null
     }
   }
@@ -257,7 +248,7 @@ async function migrateFromOldState(uid) {
   // Delete old monolithic document
   try {
     await deleteDoc(ref)
-  } catch (error) {
+  } catch {
     // If deletion fails (e.g. doc still too large), that's ok - we won't use it anymore
   }
 
