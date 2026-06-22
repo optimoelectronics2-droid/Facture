@@ -41,6 +41,7 @@ let migrationDone = false
 let snapshotRetries = {}
 let snapshotResubTimers = {}
 let lastErrorTime = 0
+let pendingDeletes = {}  // { collectionName: Set<id> } — items locally deleted but not yet confirmed by remote
 const ERROR_COOLDOWN_MS = 15000
 
 // ─── Path helpers ────────────────────────────────────────────────
@@ -103,6 +104,7 @@ export function stopErpRealtimeSync() {
   Object.values(snapshotResubTimers).forEach(clearTimeout)
   snapshotResubTimers = {}
   snapshotRetries = {}
+  pendingDeletes = {}
   unsubscribers.forEach((fn) => fn())
   unsubscribers = []
   unsubscribeStore?.()
@@ -284,21 +286,30 @@ function handleRemoteCollection(name, snapshot) {
   const localMap = new Map(localItems.map((i) => [i.id, i]))
   const remoteMap = new Map(remoteItems.map((i) => [i.id, i]))
 
+  // Initialize pending deletes set for this collection
+  if (!pendingDeletes[name]) pendingDeletes[name] = new Set()
+
   // Detect items that existed in last synced state but are gone from local → locally deleted
-  const locallyDeleted = new Set()
   if (previousState) {
     const prevItems = Array.isArray(previousState[name]) ? previousState[name] : []
     for (const item of prevItems) {
-      if (item?.id && !localMap.has(item.id)) locallyDeleted.add(item.id)
+      if (item?.id && !localMap.has(item.id)) {
+        pendingDeletes[name].add(item.id)
+      }
     }
+  }
+
+  // Clean up confirmed deletes: items deleted from remote no longer need tracking
+  for (const id of pendingDeletes[name]) {
+    if (!remoteMap.has(id)) pendingDeletes[name].delete(id)
   }
 
   const merged = []
 
-  // 1. Remote items: add/update; skip if locally-deleted with pending sync
+  // 1. Remote items: add/update; skip if locally-deleted (pending remote confirmation)
   for (const item of remoteItems) {
     if (!item?.id) continue
-    if (locallyDeleted.has(item.id) && pendingState) continue
+    if (pendingDeletes[name].has(item.id)) continue
     // When local writes are pending, prefer local version of same item
     merged.push(pendingState && localMap.has(item.id) ? localMap.get(item.id) : item)
   }
