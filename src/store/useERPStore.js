@@ -1333,8 +1333,9 @@ export const useERPStore = create(
         const deliveryNote = get().conduces.find((item) => item.id === deliveryNoteId)
         if (!deliveryNote) throw new Error('El conduce no existe.')
         if (deliveryNote.status === 'converted') throw new Error('Este conduce ya fue convertido a factura.')
+        const { id: _deliveryNoteId, ...deliveryNoteRest } = deliveryNote
         const invoice = get().createInvoice({
-          ...deliveryNote,
+          ...deliveryNoteRest,
           ...invoiceData,
           customerId: invoiceData.customerId || deliveryNote.customerId,
           items: invoiceData.items || deliveryNote.items,
@@ -2082,6 +2083,43 @@ export const useERPStore = create(
         return { removed, message: `Limpieza completada. Se eliminaron ${Object.values(removed).reduce((a, b) => a + b, 0)} registros huerfanos.` }
       },
 
+      cleanupOrphanReferences() {
+        const state = get()
+        const invoiceIds = new Set(state.invoices.map((inv) => inv.id))
+        const keptRecvIds = new Set()
+        const removed = { receivables: 0, payments: 0 }
+
+        const safeRecvs = (state.receivables || []).filter((rec) => {
+          if (invoiceIds.has(rec.invoiceId)) { keptRecvIds.add(rec.id); return true }
+          removed.receivables += 1
+          return false
+        })
+
+        const safePmts = (state.payments || []).filter((pay) => {
+          const hasInvoice = pay.invoiceId && invoiceIds.has(pay.invoiceId)
+          const hasRecv = pay.receivableId && keptRecvIds.has(pay.receivableId)
+          if (hasInvoice || hasRecv) return true
+          removed.payments += 1
+          return false
+        })
+
+        if (removed.receivables > 0 || removed.payments > 0) {
+          set({ receivables: safeRecvs, payments: safePmts })
+          try {
+            var persistKey = 'trifusion-erp-state-v2'
+            var raw = localStorage.getItem(persistKey)
+            if (raw) {
+              var parsed = JSON.parse(raw)
+              var fresh = get()
+              parsed.state.receivables = fresh.receivables
+              parsed.state.payments = fresh.payments
+              localStorage.setItem(persistKey, JSON.stringify(parsed))
+            }
+          } catch(e) { console.error('Force persist after orphan cleanup error:', e) }
+        }
+        return removed
+      },
+
       recalculateFinancialFields() {
         const state = get()
         var fixed = { invoices: 0, receivables: 0, customers: 0 }
@@ -2234,7 +2272,15 @@ export const useERPStore = create(
             try {
               var report = state.verifyDataIntegrity()
               var total = (report.invalidStatusInvoices||0)+(report.orphanReceivables||0)+(report.orphanPayments||0)+(report.orphanInventoryMovements||0)+(report.orphanFinancialMovements||0)+(report.orphanCreditNotes||0)
-              if (total > 0) console.warn('[ERP] Inconsistencias detectadas al cargar, NO se eliminan datos automaticamente:', report)
+              if (total > 0) {
+                console.warn('[ERP] Inconsistencias detectadas al cargar, NO se eliminan datos automaticamente:', report)
+                if (report.orphanReceivables > 0 || report.orphanPayments > 0) {
+                  var removedOrphans = state.cleanupOrphanReferences()
+                  if (removedOrphans.receivables > 0 || removedOrphans.payments > 0) {
+                    console.warn('[ERP] Se eliminaron referencias huerfanas seguras:', removedOrphans)
+                  }
+                }
+              }
               state.recalculateFinancialFields()
               state.refreshReportStats()
             } catch(e) { console.error('Post-hydration cleanup error:', e) }
