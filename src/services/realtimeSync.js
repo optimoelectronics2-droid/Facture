@@ -269,9 +269,14 @@ function handleRemoteCollection(name, snapshot) {
   // GUARD: Never replace local data with empty remote results
   // This prevents data loss when Firestore reconnects after a network
   // error (QUIC protocol failure, etc.) and returns an empty snapshot.
-  if (remoteItems.length === 0 && localItems.length > 0 && !pendingState) {
-    applyingRemote = false
-    return
+  if (remoteItems.length === 0 && localItems.length > 0) {
+    if (!pendingState) {
+      applyingRemote = false
+      return
+    }
+    // Even with pending local writes, keep all local items since the
+    // remote snapshot is empty (likely a transient connection issue).
+    pendingState = null
   }
 
   const localMap = new Map(localItems.map((i) => [i.id, i]))

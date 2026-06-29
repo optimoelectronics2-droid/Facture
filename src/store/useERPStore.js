@@ -2264,8 +2264,23 @@ export const useERPStore = create(
       migrate: (persistedState) => migrateTenantState(persistedState),
       onRehydrateStorage: () => (state, error) => {
         if (error) {
-          console.error('[Persist] Error de rehidratacion, limpiando storage:', error)
-          try { localStorage.removeItem('trifusion-erp-state-v2') } catch { /* ignore if key doesn't exist */ }
+          console.error('[Persist] Error de rehidratacion, intentando recuperar datos:', error)
+          try {
+            var raw = localStorage.getItem('trifusion-erp-state-v2')
+            if (raw) {
+              var parsed = tryParseJson(raw)
+              if (parsed && parsed.state && typeof parsed.state === 'object' && Object.keys(parsed.state).length > 3) {
+                console.warn('[Persist] Storage reparado parcialmente, continuando con datos recuperados.')
+                window.location.reload()
+                return
+              }
+            }
+          } catch(e) { console.error('[Persist] No se pudo recuperar storage:', e) }
+          try {
+            var raw2 = localStorage.getItem('trifusion-erp-state-v2')
+            if (raw2) localStorage.setItem('trifusion-erp-state-v2-backup-' + Date.now(), raw2)
+            localStorage.removeItem('trifusion-erp-state-v2')
+          } catch { /* ignore */ }
           window.location.reload()
         } else if (state && state.invoices && state.verifyDataIntegrity) {
           setTimeout(function() {
@@ -2763,6 +2778,10 @@ function buildVerificationToken(existingInvoices = []) {
     token = `AUTH-${randomCode(4)}-${randomCode(4)}`
   } while (existing.has(token))
   return token
+}
+
+function tryParseJson(raw) {
+  try { return JSON.parse(raw) } catch { return null }
 }
 
 function randomCode(length) {
