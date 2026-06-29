@@ -226,7 +226,7 @@ export function FinancialMovements() {
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex min-w-[220px] flex-1 items-center gap-2 rounded-lg px-3 py-2" style={{ border: '1px solid var(--line)', background: 'var(--bg-input)' }}>
             <Search size={16} style={{ color: 'var(--text-tertiary)' }} />
-            <input id="financial-query" name="financial-query" value={query} onChange={(e) => setQuery(e.target.value)} className="min-w-0 flex-1 bg-transparent text-sm outline-none" placeholder="Buscar por documento, cliente, tipo, metodo, comentario..." />
+            <input id="financial-query" name="financial-query" value={query} onChange={(e) => setQuery(e.target.value)} className="min-w-0 flex-1 bg-transparent text-sm outline-none" placeholder="Buscar por documento, cliente, tipo, metodo, comentario..." aria-label="financial-query" />
           </div>
           <label className="flex items-center gap-2 text-xs font-bold" style={{ color: 'var(--text-secondary)' }}>
             <CalendarDays size={14} />
@@ -234,7 +234,7 @@ export function FinancialMovements() {
             <span>-</span>
             <input id="financial-date-to" type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="input-dark max-w-36" />
           </label>
-          <select id="financial-type-filter" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="input-dark max-w-40">
+          <select id="financial-type-filter" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="input-dark max-w-40" aria-label="financial-type-filter">
             <option value="all">Todos los tipos</option>
             {types.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>

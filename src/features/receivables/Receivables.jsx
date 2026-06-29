@@ -171,7 +171,7 @@ export function Receivables() {
           <div className="flex items-center gap-3">
             <div className="module-search-bar">
               <Search size={16} style={{ color: 'var(--text-tertiary)' }} />
-              <input id="receivable-query" name="receivable-query" value={query} onChange={(e) => setQuery(e.target.value)} className="min-w-0 flex-1 bg-transparent text-sm outline-none" placeholder="Buscar cliente, factura, estado" />
+              <input id="receivable-query" name="receivable-query" value={query} onChange={(e) => setQuery(e.target.value)} className="min-w-0 flex-1 bg-transparent text-sm outline-none" placeholder="Buscar cliente, factura, estado" aria-label="receivable-query" />
             </div>
             <Button variant="ghost" icon={FileSpreadsheet} onClick={exportAging}>Aging Excel</Button>
           </div>

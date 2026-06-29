@@ -204,7 +204,7 @@ export function InvoiceList() {
         <div className="invoice-search-row">
           <div className="module-search-bar invoice-search-bar min-w-0">
             <Search size={18} style={{ color: 'var(--blue-bright)' }} />
-            <input id="invoice-list-query" name="invoice-list-query" value={query} onChange={(e) => setQuery(e.target.value)} className="min-w-0" placeholder="Buscar factura, cliente, NCF, RNC, telefono, producto, vendedor, pago, fecha o total" />
+            <input id="invoice-list-query" name="invoice-list-query" value={query} onChange={(e) => setQuery(e.target.value)} className="min-w-0" placeholder="Buscar factura, cliente, NCF, RNC, telefono, producto, vendedor, pago, fecha o total" aria-label="invoice-list-query" />
           </div>
           <div className="invoice-filter-count"><span>{totalMatched}</span><small>resultados</small></div>
         </div>
@@ -251,9 +251,9 @@ export function InvoiceList() {
           </div>
         ) : null}
         <div className="invoice-select-strip">
-          <select id="invoice-list-mode" name="invoice-list-mode" value={mode} onChange={(e) => setMode(e.target.value)} className="input-dark"><option value="all">Modo: todos</option><option value={invoiceModes.TAXED}>Con ITBIS</option><option value={invoiceModes.NO_TAX}>Sin ITBIS</option><option value={invoiceModes.MIXED}>Mixta</option></select>
-          <select id="invoice-list-status" name="invoice-list-status" value={status} onChange={(e) => setStatus(e.target.value)} className="input-dark"><option value="all">Estado: todos</option><option value="draft">Borrador</option><option value="paid">Pagada</option><option value="partial">Parcialmente pagada</option><option value="credit">Fiada / pendiente</option><option value="voided">Anulada</option></select>
-          <select id="invoice-list-ncf-type" name="invoice-list-ncf-type" value={ncfType} onChange={(e) => setNcfType(e.target.value)} className="input-dark"><option value="all">NCF todos</option><option>B01</option><option>B02</option><option>B14</option><option>B15</option><option>E31</option><option>E32</option><option>NO_FISCAL</option></select>
+          <select id="invoice-list-mode" name="invoice-list-mode" value={mode} onChange={(e) => setMode(e.target.value)} className="input-dark" aria-label="invoice-list-mode"><option value="all">Modo: todos</option><option value={invoiceModes.TAXED}>Con ITBIS</option><option value={invoiceModes.NO_TAX}>Sin ITBIS</option><option value={invoiceModes.MIXED}>Mixta</option></select>
+          <select id="invoice-list-status" name="invoice-list-status" value={status} onChange={(e) => setStatus(e.target.value)} className="input-dark" aria-label="invoice-list-status"><option value="all">Estado: todos</option><option value="draft">Borrador</option><option value="paid">Pagada</option><option value="partial">Parcialmente pagada</option><option value="credit">Fiada / pendiente</option><option value="voided">Anulada</option></select>
+          <select id="invoice-list-ncf-type" name="invoice-list-ncf-type" value={ncfType} onChange={(e) => setNcfType(e.target.value)} className="input-dark" aria-label="invoice-list-ncf-type"><option value="all">NCF todos</option><option>B01</option><option>B02</option><option>B14</option><option>B15</option><option>E31</option><option>E32</option><option>NO_FISCAL</option></select>
         </div>
       </div>
       <div className="section-divider" />
@@ -334,7 +334,7 @@ export function InvoiceList() {
                   <p className="font-bold text-white">{item.name}</p>
                   <p className="text-xs" style={{ color: 'rgba(255,255,255,.45)' }}>Vendido: {crediting?.items?.[index]?.quantity || item.quantity} | Seriales: {(item.serials || (item.serial ? [item.serial] : [])).join(', ') || '-'}</p>
                 </div>
-                <input id={"invoice-list-credit-item-qty-" + index} name={"invoice-list-credit-item-qty-" + index} type="number" min="0" max={crediting?.items?.[index]?.quantity || item.quantity} value={item.quantity} onChange={(event) => setCreditItems((items) => items.map((line, lineIndex) => lineIndex === index ? { ...line, quantity: Number(event.target.value) } : line))} className="input-dark" />
+                <input id={"invoice-list-credit-item-qty-" + index} name={"invoice-list-credit-item-qty-" + index} type="number" min="0" max={crediting?.items?.[index]?.quantity || item.quantity} value={item.quantity} onChange={(event) => setCreditItems((items) => items.map((line, lineIndex) => lineIndex === index ? { ...line, quantity: Number(event.target.value) } : line))} className="input-dark" aria-label={"invoice-list-credit-item-qty-" + index} />
               </div>
             ))}
           </div>
@@ -484,7 +484,7 @@ function PremiumInvoiceTable({ data, columns }) {
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border" style={{ borderColor: 'var(--line)', background: 'var(--bg-surface)', padding: '12px 14px' }}>
         <div className="text-xs font-bold uppercase" style={{ color: 'var(--text-tertiary)' }}>{sorted.length} resultado(s) organizados</div>
         <div className="relative flex flex-wrap gap-2">
-          <select id="invoice-list-page-size" name="invoice-list-page-size" value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1) }} className="input-dark max-w-36">
+          <select id="invoice-list-page-size" name="invoice-list-page-size" value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1) }} className="input-dark max-w-36" aria-label="invoice-list-page-size">
             <option value="10">10 por pagina</option>
             <option value="25">25 por pagina</option>
             <option value="50">50 por pagina</option>

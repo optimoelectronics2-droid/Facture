@@ -249,7 +249,7 @@ export function POS() {
             <div className="relative flex-1">
               <div className="flex items-center gap-3 rounded-lg border border-white/10 bg-black/20 px-3 py-3">
                 <ScanBarcode size={19} className="text-blue-300" />
-                <input ref={productInputRef} id="pos-query" name="pos-query" value={query} onChange={(event) => setQuery(event.target.value)} className="w-full bg-transparent text-sm outline-none placeholder:text-white/35" placeholder="Escanea codigo de barras, SKU, IMEI o busca producto" />
+                <input ref={productInputRef} id="pos-query" name="pos-query" value={query} onChange={(event) => setQuery(event.target.value)} className="w-full bg-transparent text-sm outline-none placeholder:text-white/35" placeholder="Escanea codigo de barras, SKU, IMEI o busca producto" aria-label="pos-query" />
               </div>
               {filtered.length > 0 && (
                 <div className="absolute left-0 right-0 top-full z-[9999] mt-1 max-h-80 overflow-y-auto rounded-lg border border-white/10 bg-[#111118] p-2 shadow-2xl">
@@ -276,12 +276,12 @@ export function POS() {
                 <p className="mt-2 text-xs text-white/40">Busca o escanea un producto para comenzar.</p>
               )}
             </div>
-            <select id="pos-ncf-type" name="pos-ncf-type" value={ncfType} onChange={(event) => changeNcfType(event.target.value)} className="rounded-lg border border-white/10 bg-[#111118] px-3 py-3 text-sm font-bold outline-none">
+            <select id="pos-ncf-type" name="pos-ncf-type" value={ncfType} onChange={(event) => changeNcfType(event.target.value)} className="rounded-lg border border-white/10 bg-[#111118] px-3 py-3 text-sm font-bold outline-none" aria-label="pos-ncf-type">
               <option value="NO_FISCAL">Sin comprobante</option>
               <option value="B01">B01 Credito fiscal</option>
               <option value="B02">B02 Consumo</option>
             </select>
-            <select id="pos-mode" name="pos-mode" value={mode} onChange={(event) => setMode(event.target.value)} className="rounded-lg border border-white/10 bg-[#111118] px-3 py-3 text-sm font-bold outline-none">
+            <select id="pos-mode" name="pos-mode" value={mode} onChange={(event) => setMode(event.target.value)} className="rounded-lg border border-white/10 bg-[#111118] px-3 py-3 text-sm font-bold outline-none" aria-label="pos-mode">
               <option value={invoiceModes.TAXED}>Factura con ITBIS</option>
               <option value={invoiceModes.NO_TAX}>Factura sin ITBIS</option>
               <option value={invoiceModes.MIXED}>Factura mixta</option>
@@ -302,6 +302,7 @@ export function POS() {
                 onChange={(event) => { setCustomerQuery(event.target.value); setCustomerId('') }}
                 className="w-full rounded-lg border border-white/10 bg-[#0d0e14] px-3 py-3 text-sm outline-none placeholder:text-white/35"
                 placeholder="Buscar cliente por nombre, RNC, cedula, telefono o WhatsApp"
+                aria-label="pos-customer-query"
               />
               {customerResults.length ? (
                 <div className="absolute left-0 right-12 top-12 z-[9999] max-h-72 overflow-auto rounded-lg border border-white/10 bg-[#111118] p-2 shadow-2xl">
@@ -323,7 +324,7 @@ export function POS() {
             </div>
             <button type="button" title="Registrar cliente" onClick={() => setCustomerModal(true)} className="grid h-11 w-11 shrink-0 place-items-center rounded-lg border border-white/10 bg-white/[0.035] text-white/70 hover:bg-white/[0.08]"><UserPlus size={18} /></button>
           </div>
-          <select id="pos-payment-method" name="pos-payment-method" value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)} className="rounded-lg border border-white/10 bg-[#0d0e14] px-3 py-3 text-sm outline-none">
+          <select id="pos-payment-method" name="pos-payment-method" value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)} className="rounded-lg border border-white/10 bg-[#0d0e14] px-3 py-3 text-sm outline-none" aria-label="pos-payment-method">
             <option>Efectivo</option><option>Tarjeta</option><option>Transferencia</option><option>Credito</option>
           </select>
         </div>

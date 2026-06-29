@@ -145,10 +145,10 @@ export function SettingsPage() {
               <div key={item.id} className="rounded-lg border border-white/10 bg-white/[0.035] p-3">
                 {editingCompanyId === item.id ? (
                   <div className="grid gap-2 md:grid-cols-[1fr_130px_130px_1fr_auto]">
-                    <input id="edit-company-name" value={editingCompanyDraft.name} onChange={(event) => setEditingCompanyDraft((state) => ({ ...state, name: event.target.value }))} className="input-dark" placeholder="Nombre" />
-                    <input id="edit-company-rnc" value={editingCompanyDraft.rnc} onChange={(event) => setEditingCompanyDraft((state) => ({ ...state, rnc: event.target.value }))} className="input-dark" placeholder="RNC" />
-                    <input id="edit-company-phone" value={editingCompanyDraft.phone} onChange={(event) => setEditingCompanyDraft((state) => ({ ...state, phone: event.target.value }))} className="input-dark" placeholder="Telefono" />
-                    <input id="edit-company-email" value={editingCompanyDraft.email} onChange={(event) => setEditingCompanyDraft((state) => ({ ...state, email: event.target.value }))} className="input-dark" placeholder="Email" />
+                    <input id="edit-company-name" value={editingCompanyDraft.name} onChange={(event) => setEditingCompanyDraft((state) => ({ ...state, name: event.target.value }))} className="input-dark" placeholder="Nombre" aria-label="edit-company-name" />
+                    <input id="edit-company-rnc" value={editingCompanyDraft.rnc} onChange={(event) => setEditingCompanyDraft((state) => ({ ...state, rnc: event.target.value }))} className="input-dark" placeholder="RNC" aria-label="edit-company-rnc" />
+                    <input id="edit-company-phone" value={editingCompanyDraft.phone} onChange={(event) => setEditingCompanyDraft((state) => ({ ...state, phone: event.target.value }))} className="input-dark" placeholder="Telefono" aria-label="edit-company-phone" />
+                    <input id="edit-company-email" value={editingCompanyDraft.email} onChange={(event) => setEditingCompanyDraft((state) => ({ ...state, email: event.target.value }))} className="input-dark" placeholder="Email" aria-label="edit-company-email" />
                     <div className="flex gap-2"><Button icon={Save} onClick={handleUpdateCompany}>Guardar</Button><Button variant="ghost" onClick={() => setEditingCompanyId('')}>Cancelar</Button></div>
                   </div>
                 ) : (
@@ -239,9 +239,9 @@ export function SettingsPage() {
             {taxSequences.map((sequence) => (
               <div key={sequence.id} className="grid gap-2 rounded-lg border border-white/10 bg-white/[0.035] p-2 md:grid-cols-5">
                 <p className="font-bold">{sequence.id}</p>
-                <input id={`seq-next-${sequence.id}`} type="number" value={sequence.next} onChange={(e) => updateTaxSequence({ type: sequence.id, next: Number(e.target.value) })} className="input-dark" />
-                <input id={`seq-limit-${sequence.id}`} type="number" value={sequence.limit} onChange={(e) => updateTaxSequence({ type: sequence.id, limit: Number(e.target.value) })} className="input-dark" />
-                <input id={`seq-expires-${sequence.id}`} type="date" value={sequence.expiresAt} onChange={(e) => updateTaxSequence({ type: sequence.id, expiresAt: e.target.value })} className="input-dark" />
+                <input id={`seq-next-${sequence.id}`} type="number" value={sequence.next} onChange={(e) => updateTaxSequence({ type: sequence.id, next: Number(e.target.value) })} className="input-dark" aria-label={`seq-next-${sequence.id}`} />
+                <input id={`seq-limit-${sequence.id}`} type="number" value={sequence.limit} onChange={(e) => updateTaxSequence({ type: sequence.id, limit: Number(e.target.value) })} className="input-dark" aria-label={`seq-limit-${sequence.id}`} />
+                <input id={`seq-expires-${sequence.id}`} type="date" value={sequence.expiresAt} onChange={(e) => updateTaxSequence({ type: sequence.id, expiresAt: e.target.value })} className="input-dark" aria-label={`seq-expires-${sequence.id}`} />
                 <label className="flex items-center gap-2 text-sm"><input id={`seq-enabled-${sequence.id}`} type="checkbox" checked={sequence.enabled} onChange={(e) => updateTaxSequence({ type: sequence.id, enabled: e.target.checked })} /> Activa</label>
               </div>
             ))}

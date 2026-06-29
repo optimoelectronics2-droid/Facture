@@ -279,36 +279,131 @@ export function Reports() {
           </div>
         </div>
 
-        <section className="section-card no-print">
-          <button type="button" onClick={() => setShowFilters((s) => !s)} className={`quick-filter-btn flex w-full items-center justify-between gap-3 text-left${showFilters ? ' active' : ''}`}>
-            <div className="flex items-center gap-2">
-              <Filter size={16} style={{ color: 'var(--color-analytics)' }} />
-              <span className="text-xs font-extrabold uppercase tracking-widest" style={{ color: 'var(--text-secondary)' }}>Filtros avanzados</span>
-              <span className="rounded-full px-2 py-0.5 text-[10px] font-bold" style={{ background: 'rgba(59,130,246,.15)', color: 'rgb(191, 219, 254)' }}>{filteredInvoices.length} resultados</span>
-            </div>
-            <ChevronDown size={16} className={`transition ${showFilters ? 'rotate-180' : ''}`} style={{ color: 'rgba(255,255,255,.4)' }} />
-          </button>
-          {showFilters ? (
-            <div className="mt-4 space-y-3">
-              <div className="grid gap-3 xl:grid-cols-[1.2fr_.8fr_.8fr_.8fr_.8fr_.8fr]">
-                <label className="module-search-bar">
-                  <span className="label-dark flex items-center gap-2"><Search size={14} /> Busqueda</span>
-                  <input id="report-query" value={filters.query} onChange={(e) => setFilter('query', e.target.value)} className="w-full bg-transparent text-sm outline-none" placeholder="Factura, cliente, producto, NCF, serial..." />
-                </label>
-                <label><span className="label-dark">Periodo</span><select id="report-quick-range" value={filters.quickRange} onChange={(e) => setQuickRange(e.target.value)} className="input-dark">{quickDateRanges.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
-                <label><span className="label-dark">Fecha inicio</span><input id="report-date-from" type="date" value={filters.dateFrom} onChange={(e) => setFilter('dateFrom', e.target.value)} className="input-dark" /></label>
-                <label><span className="label-dark">Fecha fin</span><input id="report-date-to" type="date" value={filters.dateTo} onChange={(e) => setFilter('dateTo', e.target.value)} className="input-dark" /></label>
-                <label><span className="label-dark">Hora inicio</span><input id="report-time-from" type="time" value={filters.timeFrom} onChange={(e) => setFilter('timeFrom', e.target.value)} className="input-dark" /></label>
-                <label><span className="label-dark">Hora fin</span><input id="report-time-to" type="time" value={filters.timeTo} onChange={(e) => setFilter('timeTo', e.target.value)} className="input-dark" /></label>
+        <section className="no-print rounded-2xl border border-[#243244] bg-[#111827] p-6 shadow-lg shadow-black/20 backdrop-blur-sm">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/10 text-blue-400">
+                <Filter size={18} />
               </div>
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
-                <label><span className="label-dark flex items-center gap-2"><CalendarDays size={14} /> Dia exacto</span><input id="report-exact-date" type="date" value={filters.exactDate} onChange={(e) => setFilter('exactDate', e.target.value)} className="input-dark" /></label>
-                <label><span className="label-dark">Mes</span><input id="report-month" type="month" value={filters.month} onChange={(e) => setFilter('month', e.target.value)} className="input-dark" /></label>
-                <label><span className="label-dark">Ano</span><input id="report-year" type="number" value={filters.year} onChange={(e) => setFilter('year', e.target.value)} className="input-dark" /></label>
-                <label><span className="label-dark">Monto min</span><input id="report-amount-min" type="number" value={filters.amountMin} onChange={(e) => setFilter('amountMin', e.target.value)} className="input-dark" /></label>
-                <label><span className="label-dark">Monto max</span><input id="report-amount-max" type="number" value={filters.amountMax} onChange={(e) => setFilter('amountMax', e.target.value)} className="input-dark" /></label>
-                <label><span className="label-dark">Estado</span><select id="report-status" value={filters.status} onChange={(e) => setFilter('status', e.target.value)} className="input-dark"><option value="all">Todos</option><option value="paid">Pagada</option><option value="credit">Credito</option><option value="voided">Anulada</option><option value="issued">Emitida</option></select></label>
-                <label><span className="label-dark">Agrupar por</span><select id="report-group-by" value={filters.groupBy} onChange={(e) => setFilter('groupBy', e.target.value)} className="input-dark">{groupOptions.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
+              <div>
+                <h3 className="text-base font-bold text-[#F8FAFC]">Filtros avanzados</h3>
+                <p className="text-xs text-[#94A3B8]">Encuentra exactamente la informacion que necesitas</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="rounded-full bg-blue-500/10 px-3 py-1 text-xs font-bold text-blue-300">{filteredInvoices.length} resultados</span>
+              <button type="button" onClick={() => setShowFilters((s) => !s)} className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-bold text-[#94A3B8] transition hover:bg-[#1d4ed8]/10 hover:text-blue-300">
+                <Filter size={14} />
+                {showFilters ? 'Ocultar' : 'Mostrar'} filtros
+              </button>
+            </div>
+          </div>
+
+          {showFilters ? (
+            <div className="mt-6 space-y-5">
+              <div className="relative">
+                <Search size={16} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#94A3B8]" />
+                <input
+                  id="report-query"
+                  value={filters.query}
+                  onChange={(e) => setFilter('query', e.target.value)}
+                  className="h-11 w-full rounded-xl border border-[#243244] bg-[#0f172a] pl-11 pr-4 text-sm text-[#F8FAFC] outline-none transition placeholder:text-[#94A3B8]/60 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30"
+                  placeholder="Buscar factura, cliente, producto, NCF, serie, vendedor..."
+                />
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-[#94A3B8]">Periodo</label>
+                  <select id="report-quick-range" value={filters.quickRange} onChange={(e) => setQuickRange(e.target.value)} className="h-11 w-full rounded-xl border border-[#243244] bg-[#0f172a] px-3 text-sm text-[#F8FAFC] outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30">{quickDateRanges.map((item) => <option key={item.id} value={item.id} className="bg-[#0f172a]">{item.label}</option>)}</select>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-[#94A3B8]">Fecha inicio</label>
+                  <input id="report-date-from" type="date" value={filters.dateFrom} onChange={(e) => setFilter('dateFrom', e.target.value)} className="h-11 w-full rounded-xl border border-[#243244] bg-[#0f172a] px-3 text-sm text-[#F8FAFC] outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-[#94A3B8]">Fecha fin</label>
+                  <input id="report-date-to" type="date" value={filters.dateTo} onChange={(e) => setFilter('dateTo', e.target.value)} className="h-11 w-full rounded-xl border border-[#243244] bg-[#0f172a] px-3 text-sm text-[#F8FAFC] outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-[#94A3B8]">Hora inicio</label>
+                  <input id="report-time-from" type="time" value={filters.timeFrom} onChange={(e) => setFilter('timeFrom', e.target.value)} className="h-11 w-full rounded-xl border border-[#243244] bg-[#0f172a] px-3 text-sm text-[#F8FAFC] outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-[#94A3B8]">Hora fin</label>
+                  <input id="report-time-to" type="time" value={filters.timeTo} onChange={(e) => setFilter('timeTo', e.target.value)} className="h-11 w-full rounded-xl border border-[#243244] bg-[#0f172a] px-3 text-sm text-[#F8FAFC] outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-[#94A3B8]">Dia exacto</label>
+                  <div className="relative">
+                    <CalendarDays size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#94A3B8]" />
+                    <input id="report-exact-date" type="date" value={filters.exactDate} onChange={(e) => setFilter('exactDate', e.target.value)} className="h-11 w-full rounded-xl border border-[#243244] bg-[#0f172a] pl-9 pr-3 text-sm text-[#F8FAFC] outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-[#94A3B8]">Mes</label>
+                  <input id="report-month" type="month" value={filters.month} onChange={(e) => setFilter('month', e.target.value)} className="h-11 w-full rounded-xl border border-[#243244] bg-[#0f172a] px-3 text-sm text-[#F8FAFC] outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-[#94A3B8]">Ano</label>
+                  <input id="report-year" type="number" value={filters.year} onChange={(e) => setFilter('year', e.target.value)} className="h-11 w-full rounded-xl border border-[#243244] bg-[#0f172a] px-3 text-sm text-[#F8FAFC] outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30" placeholder="2026" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-[#94A3B8]">Monto minimo</label>
+                  <input id="report-amount-min" type="number" value={filters.amountMin} onChange={(e) => setFilter('amountMin', e.target.value)} className="h-11 w-full rounded-xl border border-[#243244] bg-[#0f172a] px-3 text-sm text-[#F8FAFC] outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30" placeholder="RD$ 0" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-[#94A3B8]">Monto maximo</label>
+                  <input id="report-amount-max" type="number" value={filters.amountMax} onChange={(e) => setFilter('amountMax', e.target.value)} className="h-11 w-full rounded-xl border border-[#243244] bg-[#0f172a] px-3 text-sm text-[#F8FAFC] outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30" placeholder="RD$ 999,999" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-[#94A3B8]">Estado</label>
+                  <select id="report-status" value={filters.status} onChange={(e) => setFilter('status', e.target.value)} className="h-11 w-full rounded-xl border border-[#243244] bg-[#0f172a] px-3 text-sm text-[#F8FAFC] outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30">
+                    <option value="all" className="bg-[#0f172a]">Todos</option>
+                    <option value="paid" className="bg-[#0f172a]">Pagada</option>
+                    <option value="credit" className="bg-[#0f172a]">Credito</option>
+                    <option value="voided" className="bg-[#0f172a]">Anulada</option>
+                    <option value="issued" className="bg-[#0f172a]">Emitida</option>
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-[#94A3B8]">Agrupar por</label>
+                  <select id="report-group-by" value={filters.groupBy} onChange={(e) => setFilter('groupBy', e.target.value)} className="h-11 w-full rounded-xl border border-[#243244] bg-[#0f172a] px-3 text-sm text-[#F8FAFC] outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30">
+                    {groupOptions.map((item) => <option key={item.id} value={item.id} className="bg-[#0f172a]">{item.label}</option>)}
+                  </select>
+                </div>
+
+              </div>
+
+              <AdvancedFilters filters={filters} setFilter={setFilter} setQuickRange={setQuickRange} />
+
+              <div className="flex items-center justify-between gap-3 border-t border-[#243244] pt-5">
+                <button
+                  type="button"
+                  onClick={() => setFilters(() => applyQuickRange(defaultReportFilters(), 'today'))}
+                  className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold text-[#94A3B8] transition hover:bg-white/[0.05] hover:text-[#F8FAFC]"
+                >
+                  Limpiar filtros
+                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowFilters(false)}
+                    className="flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-bold text-[#94A3B8] transition hover:bg-white/[0.05] hover:text-[#F8FAFC]"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowFilters(false)}
+                    className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-blue-500 px-6 py-2.5 text-sm font-bold text-white shadow-lg shadow-blue-500/20 transition hover:from-blue-500 hover:to-blue-400"
+                  >
+                    Aplicar filtros
+                  </button>
+                </div>
               </div>
             </div>
           ) : null}
@@ -626,7 +721,43 @@ function KpiBlock({ label, value, raw, accent }) {
 }
 
 function AdvancedFilters({ filters, setFilter, setQuickRange }) {
-  return null
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="overflow-hidden rounded-xl border border-[#243244]">
+      <button
+        type="button"
+        onClick={() => setOpen((s) => !s)}
+        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-sm font-bold text-[#94A3B8] transition hover:bg-white/[0.03] hover:text-[#F8FAFC]"
+      >
+        <span>Mas filtros</span>
+        <ChevronDown size={15} className={`transition duration-200 ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open ? (
+        <div className="grid gap-4 border-t border-[#243244] p-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-[#94A3B8]">Vendedor</label>
+            <input id="report-seller" value={filters.seller || ''} onChange={(e) => setFilter('seller', e.target.value)} className="h-11 w-full rounded-xl border border-[#243244] bg-[#0f172a] px-3 text-sm text-[#F8FAFC] outline-none transition placeholder:text-[#94A3B8]/60 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30" placeholder="Vendedor" />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-[#94A3B8]">Metodo de pago</label>
+            <input id="report-payment-method" value={filters.paymentMethod || ''} onChange={(e) => setFilter('paymentMethod', e.target.value)} className="h-11 w-full rounded-xl border border-[#243244] bg-[#0f172a] px-3 text-sm text-[#F8FAFC] outline-none transition placeholder:text-[#94A3B8]/60 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30" placeholder="Efectivo, Tarjeta..." />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-[#94A3B8]">Tipo NCF</label>
+            <input id="report-ncf-type" value={filters.ncfType || ''} onChange={(e) => setFilter('ncfType', e.target.value)} className="h-11 w-full rounded-xl border border-[#243244] bg-[#0f172a] px-3 text-sm text-[#F8FAFC] outline-none transition placeholder:text-[#94A3B8]/60 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30" placeholder="B01, B02..." />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-[#94A3B8]">Cliente</label>
+            <input id="report-customer" value={filters.customer || ''} onChange={(e) => setFilter('customer', e.target.value)} className="h-11 w-full rounded-xl border border-[#243244] bg-[#0f172a] px-3 text-sm text-[#F8FAFC] outline-none transition placeholder:text-[#94A3B8]/60 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30" placeholder="Nombre del cliente" />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-[#94A3B8]">Categoria</label>
+            <input id="report-category" value={filters.category || ''} onChange={(e) => setFilter('category', e.target.value)} className="h-11 w-full rounded-xl border border-[#243244] bg-[#0f172a] px-3 text-sm text-[#F8FAFC] outline-none transition placeholder:text-[#94A3B8]/60 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30" placeholder="Categoria" />
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
 }
 
 function ReportSheet({ group, onDownload, onBack }) {

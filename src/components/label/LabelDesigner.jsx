@@ -147,7 +147,7 @@ export default function LabelDesigner({ initialDesign, onSave, onClose, calibrat
       <div className="flex flex-1 flex-col overflow-auto p-4">
         <div className="mb-2 flex items-center gap-2 text-xs text-white/60">
           <span>Zoom:</span>
-          <input id="designer-zoom" type="range" min="0.5" max="5" step="0.1" value={zoom} onChange={e => setZoom(Number(e.target.value))} className="w-24" />
+          <input id="designer-zoom" type="range" min="0.5" max="5" step="0.1" value={zoom} onChange={e => setZoom(Number(e.target.value))} className="w-24" aria-label="designer-zoom" />
           <span>{zoom.toFixed(1)}x</span>
           <span className="ml-4 text-white/40">{size.name} ({size.w}×{size.h} mm)</span>
           {!validation.valid && <span className="ml-4 text-amber-300">⚠ {validation.errors[0]}</span>}

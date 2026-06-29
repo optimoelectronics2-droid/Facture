@@ -220,11 +220,11 @@ export function Inventory() {
             <Search size={16} style={{ color: 'var(--text-tertiary)' }} />
             <input id="inv-query" name="inv-query" value={filters.query} onChange={(e) => setFilters((s) => ({ ...s, query: e.target.value }))} placeholder="Nombre, SKU, codigo, IMEI, serial, marca" className="min-w-0 flex-1" />
           </label>
-          <select id="inv-category" name="inv-category" value={filters.category} onChange={(e) => setFilters((s) => ({ ...s, category: e.target.value }))} className="input-dark max-w-44"><option value="all">Todas las categorias</option>{categories.map((c) => <option key={c}>{c}</option>)}</select>
-          <select id="inv-brand" name="inv-brand" value={filters.brand} onChange={(e) => setFilters((s) => ({ ...s, brand: e.target.value }))} className="input-dark max-w-40"><option value="all">Todas las marcas</option>{brands.map((b) => <option key={b}>{b}</option>)}</select>
-          <select id="inv-tax" name="inv-tax" value={filters.tax} onChange={(e) => setFilters((s) => ({ ...s, tax: e.target.value }))} className="input-dark max-w-32"><option value="all">ITBIS todos</option><option value="taxed">Con ITBIS</option><option value="no_tax">Sin ITBIS</option><option value="exempt">Exento</option></select>
-          <select id="inv-status" name="inv-status" value={filters.status} onChange={(e) => setFilters((s) => ({ ...s, status: e.target.value }))} className="input-dark max-w-32"><option value="active">Activos</option><option value="deleted">Eliminados</option><option value="all">Todos</option></select>
-          <select id="inv-sort" name="inv-sort" value={inventorySort} onChange={(e) => setInventorySort(e.target.value)} className="input-dark max-w-44"><option value="category">Orden: categoria</option><option value="stock">Stock</option><option value="quantity">Cantidad</option><option value="value">Valor inventario</option></select>
+          <select id="inv-category" name="inv-category" value={filters.category} onChange={(e) => setFilters((s) => ({ ...s, category: e.target.value }))} className="input-dark max-w-44" aria-label="inv-category"><option value="all">Todas las categorias</option>{categories.map((c) => <option key={c}>{c}</option>)}</select>
+          <select id="inv-brand" name="inv-brand" value={filters.brand} onChange={(e) => setFilters((s) => ({ ...s, brand: e.target.value }))} className="input-dark max-w-40" aria-label="inv-brand"><option value="all">Todas las marcas</option>{brands.map((b) => <option key={b}>{b}</option>)}</select>
+          <select id="inv-tax" name="inv-tax" value={filters.tax} onChange={(e) => setFilters((s) => ({ ...s, tax: e.target.value }))} className="input-dark max-w-32" aria-label="inv-tax"><option value="all">ITBIS todos</option><option value="taxed">Con ITBIS</option><option value="no_tax">Sin ITBIS</option><option value="exempt">Exento</option></select>
+          <select id="inv-status" name="inv-status" value={filters.status} onChange={(e) => setFilters((s) => ({ ...s, status: e.target.value }))} className="input-dark max-w-32" aria-label="inv-status"><option value="active">Activos</option><option value="deleted">Eliminados</option><option value="all">Todos</option></select>
+          <select id="inv-sort" name="inv-sort" value={inventorySort} onChange={(e) => setInventorySort(e.target.value)} className="input-dark max-w-44" aria-label="inv-sort"><option value="category">Orden: categoria</option><option value="stock">Stock</option><option value="quantity">Cantidad</option><option value="value">Valor inventario</option></select>
           <Button variant={filters.low ? 'danger' : 'ghost'} onClick={() => setFilters((s) => ({ ...s, low: !s.low }))}>Stock bajo</Button>
           <Button icon={Download} variant="ghost" onClick={exportInventory}>Excel</Button>
           <Button icon={Printer} variant="ghost" onClick={exportInventoryPdf}>PDF</Button>
@@ -234,11 +234,11 @@ export function Inventory() {
         <div className="mt-4 flex flex-col gap-2 rounded-lg border text-xs font-bold sm:flex-row sm:items-center sm:justify-between" style={{ borderColor: 'var(--line)', color: 'var(--text-secondary)', background: 'var(--bg-table-header)', padding: '12px 16px' }}>
           <span>{sortedInventory.length} producto(s) encontrados · mostrando {visibleInventory.length} · pagina {safeInventoryPage} de {inventoryTotalPages}</span>
           <div className="flex flex-wrap items-center gap-2">
-            <select id="inv-page-size" name="inv-page-size" value={inventoryPageSize} onChange={(event) => setInventoryPageSize(Number(event.target.value))} className="input-dark max-w-36 py-1.5 text-xs">
+            <select id="inv-page-size" name="inv-page-size" value={inventoryPageSize} onChange={(event) => setInventoryPageSize(Number(event.target.value))} className="input-dark max-w-36 py-1.5 text-xs" aria-label="inv-page-size">
               {[12, 20, 36, 60].map((option) => <option key={option} value={option}>{option} por pagina</option>)}
             </select>
             <Button icon={ChevronLeft} variant="ghost" className="px-2 py-1.5 text-xs" disabled={safeInventoryPage <= 1} onClick={() => setInventoryPage((page) => Math.max(1, page - 1))} style={{ background: 'var(--bg-elevated)', border: '1px solid var(--line)' }}>Anterior</Button>
-            <input id="inv-page" name="inv-page" type="number" min={1} max={inventoryTotalPages} value={safeInventoryPage} onChange={(event) => { const value = Number(event.target.value); if (value >= 1 && value <= inventoryTotalPages) setInventoryPage(value) }} className="input-dark w-16 py-1 text-center text-xs" />
+            <input id="inv-page" name="inv-page" type="number" min={1} max={inventoryTotalPages} value={safeInventoryPage} onChange={(event) => { const value = Number(event.target.value); if (value >= 1 && value <= inventoryTotalPages) setInventoryPage(value) }} className="input-dark w-16 py-1 text-center text-xs" aria-label="inv-page" />
             <Button icon={ChevronRight} variant="ghost" className="px-2 py-1.5 text-xs" disabled={safeInventoryPage >= inventoryTotalPages} onClick={() => setInventoryPage((page) => Math.min(inventoryTotalPages, page + 1))} style={{ background: 'var(--bg-elevated)', border: '1px solid var(--line)' }}>Siguiente</Button>
           </div>
         </div>
@@ -362,7 +362,7 @@ function ProductForm({ product, categories, suppliers, onSave, saving }) {
               <input id="inventory-requiresSerial" type="checkbox" checked={draft.requiresSerial} onChange={(e) => set('requiresSerial', e.target.checked)} />
               Serial / IMEI
             </label>
-            {draft.requiresSerial ? <input id="inventory-serialsText" value={draft.serialsText} onChange={(e) => set('serialsText', e.target.value)} className="input-dark flex-1 text-sm" placeholder="Seriales: uno por linea o coma" /> : null}
+            {draft.requiresSerial ? <input id="inventory-serialsText" value={draft.serialsText} onChange={(e) => set('serialsText', e.target.value)} className="input-dark flex-1 text-sm" placeholder="Seriales: uno por linea o coma" aria-label="inventory-serialsText" /> : null}
           </div>
         </section>
       </div>
@@ -370,7 +370,7 @@ function ProductForm({ product, categories, suppliers, onSave, saving }) {
       <aside className="space-y-3">
         <div className="rounded-lg border p-3 text-center" style={{ borderColor: 'var(--line)' }}>
           <ImagePlus className="mx-auto mb-1" size={24} style={{ color: 'rgba(255,255,255,.3)' }} />
-          <input id="inventory-image" value={draft.image || ''} onChange={(e) => set('image', e.target.value)} className="input-dark mt-1 text-sm" placeholder="URL imagen" />
+          <input id="inventory-image" value={draft.image || ''} onChange={(e) => set('image', e.target.value)} className="input-dark mt-1 text-sm" placeholder="URL imagen" aria-label="inventory-image" />
         </div>
         <div className="space-y-1 rounded-lg border p-3 text-xs" style={{ borderColor: 'var(--line)' }}>
           <PreviewLine label="SKU" value={draft.sku || 'Autogenerado'} />

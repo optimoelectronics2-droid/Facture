@@ -325,7 +325,7 @@ export function CashDesk({ manualOnly = false }) {
             <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Entradas y salidas registradas manualmente, separadas de facturacion, inventario, CxC y CxP.</p>
           </div>
           <div className="no-print flex flex-wrap gap-2">
-            <select id="cash-period-filter" name="cash-period-filter" value={movementPeriod} onChange={(event) => setMovementPeriod(event.target.value)} className="input-dark max-w-40">{periodOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select>
+            <select id="cash-period-filter" name="cash-period-filter" value={movementPeriod} onChange={(event) => setMovementPeriod(event.target.value)} className="input-dark max-w-40" aria-label="cash-period-filter">{periodOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select>
             <Button variant="primary" icon={Download} onClick={exportManualPdf}>PDF avanzado</Button>
             <Button variant="ghost" icon={FileSpreadsheet} onClick={exportManualCsv}>Excel</Button>
             <Button variant="ghost" icon={Printer} onClick={() => window.print()}>Imprimir</Button>

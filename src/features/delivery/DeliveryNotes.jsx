@@ -86,11 +86,11 @@ export function DeliveryNotes() {
         <p className="module-header-eyebrow">Conduce</p>
         <h2 className="module-header-title">Entrega de productos sin afectar ingresos</h2>
         <div className="grid gap-3 lg:grid-cols-[260px_1fr_220px]">
-          <select id="delivery-customer" value={form.customerId} onChange={(event) => setForm((state) => ({ ...state, customerId: event.target.value }))} className="input-dark">
+          <select id="delivery-customer" value={form.customerId} onChange={(event) => setForm((state) => ({ ...state, customerId: event.target.value }))} className="input-dark" aria-label="delivery-customer">
             <option value="">Seleccione cliente</option>
             {customers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
           </select>
-          <select id="delivery-product" onChange={(event) => { addProduct(event.target.value); event.target.value = '' }} className="input-dark">
+          <select id="delivery-product" onChange={(event) => { addProduct(event.target.value); event.target.value = '' }} className="input-dark" aria-label="delivery-product">
             <option value="">Agregar producto</option>
             {activeProducts.map((item) => <option key={item.id} value={item.id}>{item.name} - stock {item.stock}</option>)}
           </select>
@@ -104,7 +104,7 @@ export function DeliveryNotes() {
           {form.items.map((item, index) => (
             <div key={`${item.productId}-${index}`} className="grid gap-2 rounded-lg border border-white/10 bg-white/[0.035] p-3 text-sm md:grid-cols-[1fr_100px_120px_40px]">
               <p className="font-bold text-white">{item.name}</p>
-              <input id={`delivery-item-qty-${index}`} type="number" min="1" value={item.quantity} onChange={(event) => setForm((state) => ({ ...state, items: state.items.map((line, lineIndex) => lineIndex === index ? { ...line, quantity: Number(event.target.value) } : line) }))} className="input-dark" />
+              <input id={`delivery-item-qty-${index}`} type="number" min="1" value={item.quantity} onChange={(event) => setForm((state) => ({ ...state, items: state.items.map((line, lineIndex) => lineIndex === index ? { ...line, quantity: Number(event.target.value) } : line) }))} className="input-dark" aria-label={`delivery-item-qty-${index}`} />
               <p className="font-bold">{currency.format(item.price * item.quantity)}</p>
               <button type="button" onClick={() => setForm((state) => ({ ...state, items: state.items.filter((_, lineIndex) => lineIndex !== index) }))} className="grid h-10 w-10 place-items-center rounded-lg border border-red-400/20 bg-red-500/10 text-red-200"><Trash2 size={15} /></button>
             </div>

@@ -207,13 +207,13 @@ export function QuoteForm({ initialQuote, onDone }) {
                         {product ? <p className="mt-1 text-xs text-white/40">{line.sku || product.sku || 'Sin codigo'} · {product.category || 'Producto'}</p> : null}
                       </td>
                       <td className="p-3">
-                        <input id={`quote-desc-${line.id}`} name={`quoteDescription-${index + 1}`} value={line.description || ''} onChange={(event) => setLine(line.id, { description: event.target.value })} className="w-full rounded-lg border border-white/10 bg-black/20 px-2.5 py-2 text-sm outline-none" placeholder="Descripcion" />
+                        <input id={`quote-desc-${line.id}`} name={`quoteDescription-${index + 1}`} value={line.description || ''} onChange={(event) => setLine(line.id, { description: event.target.value })} className="w-full rounded-lg border border-white/10 bg-black/20 px-2.5 py-2 text-sm outline-none" placeholder="Descripcion" aria-label={`quote-desc-${line.id}`} />
                       </td>
                       <td className="p-3">
-                        <input id={`quote-qty-${line.id}`} name={`quoteQuantity-${index + 1}`} type="number" min="1" value={line.quantity} onChange={(event) => setLine(line.id, { quantity: Math.max(1, Number(event.target.value)) })} className="input-dark w-20 text-center" />
+                        <input id={`quote-qty-${line.id}`} name={`quoteQuantity-${index + 1}`} type="number" min="1" value={line.quantity} onChange={(event) => setLine(line.id, { quantity: Math.max(1, Number(event.target.value)) })} className="input-dark w-20 text-center" aria-label={`quote-qty-${line.id}`} />
                       </td>
                       <td className="p-3">
-                        <input id={`quote-price-${line.id}`} name={`quotePrice-${index + 1}`} type="number" min="0" value={line.price} onChange={(event) => setLine(line.id, { price: Number(event.target.value) })} className="input-dark w-32" />
+                        <input id={`quote-price-${line.id}`} name={`quotePrice-${index + 1}`} type="number" min="0" value={line.price} onChange={(event) => setLine(line.id, { price: Number(event.target.value) })} className="input-dark w-32" aria-label={`quote-price-${line.id}`} />
                       </td>
                       <td className="p-3">
                         {form.mode === invoiceModes.MIXED ? (
@@ -221,7 +221,7 @@ export function QuoteForm({ initialQuote, onDone }) {
                         ) : <span className="text-white/45 text-sm">{line.taxable ? 'Si' : 'No'}</span>}
                       </td>
                       <td className="p-3">
-                        <input id={`quote-discount-${line.id}`} name={`quoteDiscount-${index + 1}`} type="number" min="0" max="100" value={line.discount} onChange={(event) => setLine(line.id, { discount: Number(event.target.value) })} className="input-dark w-24" />
+                        <input id={`quote-discount-${line.id}`} name={`quoteDiscount-${index + 1}`} type="number" min="0" max="100" value={line.discount} onChange={(event) => setLine(line.id, { discount: Number(event.target.value) })} className="input-dark w-24" aria-label={`quote-discount-${line.id}`} />
                       </td>
                       <td className="p-3 font-bold text-white">{currency.format((calc?.net || 0) + (calc?.tax || 0))}</td>
                       <td className="p-3 text-right"><button type="button" onClick={() => removeLine(line.id)} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-red-400/20 bg-red-500/10 text-red-200 hover:bg-red-500/20"><Trash2 size={15} /></button></td>

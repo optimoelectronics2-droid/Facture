@@ -108,8 +108,8 @@ export function ProductEntry() {
                 return (
                   <tr key={item.id} className="align-top">
                     <td className="w-80 py-3"><Autocomplete value={product} items={products.filter((p) => p.status !== 'Eliminado' && !p.deletedAt)} getMeta={(p) => `${p.sku} · Stock ${p.stock}`} getSearchText={(p) => `${p.name || ''} ${p.sku || ''} ${p.barcode || ''} ${p.model || ''} ${(p.serials || []).join(' ')}`} onSelect={(p) => setLine(item.id, { productId: p.id, cost: p.cost })} minQueryLength={1} startText="Busque el producto por nombre, codigo, modelo o serial" emptyText="Primero registre productos" /></td>
-                    <td className="py-3"><input id="entry-qty" name="entry-qty" type="number" value={item.quantity} onChange={(e) => setLine(item.id, { quantity: Number(e.target.value) })} className="input-dark w-24" /></td>
-                    <td className="py-3"><input id="entry-cost" name="entry-cost" type="number" value={item.cost} onChange={(e) => setLine(item.id, { cost: Number(e.target.value) })} className="input-dark w-32" /></td>
+                    <td className="py-3"><input id="entry-qty" name="entry-qty" type="number" value={item.quantity} onChange={(e) => setLine(item.id, { quantity: Number(e.target.value) })} className="input-dark w-24" aria-label="entry-qty" /></td>
+                    <td className="py-3"><input id="entry-cost" name="entry-cost" type="number" value={item.cost} onChange={(e) => setLine(item.id, { cost: Number(e.target.value) })} className="input-dark w-32" aria-label="entry-cost" /></td>
                     <td className="py-3 font-bold">{currency.format(Number(item.quantity || 0) * Number(item.cost || 0))}</td>
                     <td className="py-3">
                       {product?.requiresSerial ? <textarea id="entry-serials" name="entry-serials" value={item.serialText} onChange={(e) => setLine(item.id, { serialText: e.target.value })} placeholder="Uno por linea o coma" className="input-dark min-h-20 w-64" /> : <span className="text-white/35">No aplica</span>}

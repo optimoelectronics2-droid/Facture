@@ -43,13 +43,13 @@ export const DataTable = memo(function DataTable({
             ) : null}
           </div>
           <div className="flex items-center gap-2">
-            <select id={`${tableId}-page-size`} name={`${tableId}-page-size`} value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))} className="input-dark max-w-32 py-1.5 text-xs">
+            <select id={`${tableId}-page-size`} name={`${tableId}-page-size`} value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))} className="input-dark max-w-32 py-1.5 text-xs" aria-label={`${tableId}-page-size`}>
               {pageSizeOptions.map((option) => <option key={option} value={option}>{option} por pagina</option>)}
             </select>
             <button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} className="rounded-md border px-2.5 py-1.5 transition" style={{ borderColor: 'var(--line)', background: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}>Anterior</button>
             <span className="flex items-center gap-1">
               <span>Ir a</span>
-              <input id={`${tableId}-page-jump`} name={`${tableId}-page-jump`} type="number" min={1} max={totalPages} value={safePage} onChange={(e) => { const v = Number(e.target.value); if (v >= 1 && v <= totalPages) setPage(v) }} className="input-dark w-14 py-1 text-center text-xs" />
+              <input id={`${tableId}-page-jump`} name={`${tableId}-page-jump`} type="number" min={1} max={totalPages} value={safePage} onChange={(e) => { const v = Number(e.target.value); if (v >= 1 && v <= totalPages) setPage(v) }} className="input-dark w-14 py-1 text-center text-xs" aria-label={`${tableId}-page-jump`} />
             </span>
             <button type="button" onClick={() => setPage((value) => Math.min(totalPages, value + 1))} className="rounded-md border px-2.5 py-1.5 transition" style={{ borderColor: 'var(--line)', background: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}>Siguiente</button>
           </div>
