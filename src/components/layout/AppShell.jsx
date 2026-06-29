@@ -125,7 +125,7 @@ export function AppShell() {
           </div>
 
           <div className="mt-3 hidden rounded-lg border p-2 group-hover:block" style={{ borderColor: 'var(--line)', background: 'rgba(255,255,255,.035)' }}>
-            <label className="flex items-center gap-2 text-[10px] font-extrabold uppercase tracking-widest" style={{ color: 'var(--text-tertiary)' }}><Building2 size={13} /> Empresa activa</label>
+            <label htmlFor="appshell-company" className="flex items-center gap-2 text-[10px] font-extrabold uppercase tracking-widest" style={{ color: 'var(--text-tertiary)' }}><Building2 size={13} /> Empresa activa</label>
             <select id="appshell-company" value={activeCompanyId} onChange={(event) => switchCompany(event.target.value)} className="input-dark mt-2 py-2 text-xs">
               {companies.map((item) => <option key={item.id} value={item.id}>{item.name || item.legalName || item.id}</option>)}
             </select>

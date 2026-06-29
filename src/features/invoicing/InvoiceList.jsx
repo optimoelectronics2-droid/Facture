@@ -1,6 +1,6 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Columns3, Copy, Download, Eye, FileMinus2, History, Mail, MessageCircle, MoreHorizontal, PackageOpen, Pencil, Printer, RotateCcw, Search, SlidersHorizontal, Trash2, XCircle } from 'lucide-react'
+import { ChevronDown, Columns3, Copy, Download, Eye, FileMinus2, History, Mail, MessageCircle, MoreHorizontal, PackageOpen, Pencil, Printer, RotateCcw, Search, SlidersHorizontal, Trash2, XCircle } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { Modal } from '../../components/ui/Modal'
 import { InvoicePreview } from '../../components/invoice/InvoicePreview'
@@ -200,60 +200,161 @@ export function InvoiceList() {
         </div>
       </div>
 
-      <div className="invoice-filter-console">
-        <div className="invoice-search-row">
-          <div className="module-search-bar invoice-search-bar min-w-0">
-            <Search size={18} style={{ color: 'var(--blue-bright)' }} />
-            <input id="invoice-list-query" name="invoice-list-query" value={query} onChange={(e) => setQuery(e.target.value)} className="min-w-0" placeholder="Buscar factura, cliente, NCF, RNC, telefono, producto, vendedor, pago, fecha o total" aria-label="invoice-list-query" />
+      <div className="rounded-2xl border border-[#243244] bg-[#111827] px-5 py-4 shadow-lg shadow-black/20 backdrop-blur-sm">
+        <div className="flex items-center gap-4">
+          <div className="relative flex-1">
+            <Search size={16} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#94A3B8]" />
+            <input
+              id="invoice-list-query"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              className="h-10 w-full rounded-xl border border-[#243244] bg-[#0f172a] pl-10 pr-4 text-sm text-[#F8FAFC] outline-none transition placeholder:text-[#94A3B8]/60 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30"
+              placeholder="Buscar factura, cliente, RNC, NCF, telefono, producto, vendedor, pago, fecha o total..."
+              aria-label="invoice-list-query"
+            />
           </div>
-          <div className="invoice-filter-count"><span>{totalMatched}</span><small>resultados</small></div>
+          <div className="flex shrink-0 items-center gap-2 rounded-xl border border-[#243244] bg-[#0f172a] px-4 py-2">
+            <span className="text-sm font-bold text-[#F8FAFC]">{totalMatched}</span>
+            <span className="text-xs text-[#94A3B8]">Resultados</span>
+          </div>
         </div>
-        <div className="invoice-module-filter-row">
+
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
           {quickFilters.map((filter) => (
             <button
               key={filter.id}
               type="button"
               onClick={() => setQuickFilter(filter.id)}
-              className={`invoice-module-filter filter-${filter.tone} ${quickFilter === filter.id ? 'active' : ''}`}
+              className={`rounded-full px-4 py-1.5 text-xs font-bold transition-all duration-150 ${
+                quickFilter === filter.id
+                  ? 'bg-blue-500/20 text-blue-300 shadow-sm shadow-blue-500/10'
+                  : 'bg-white/[0.04] text-[#94A3B8] hover:bg-white/[0.08] hover:text-[#F8FAFC]'
+              }`}
             >
-              <span>{filter.label}</span>
+              {filter.label}
             </button>
           ))}
-        </div>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <button type="button" onClick={() => setAdvancedOpen((value) => !value)} className={`quick-filter-btn ${advancedOpen ? 'active' : ''}`}>
-            <SlidersHorizontal size={15} />
-            Busqueda avanzada
+          <button type="button" onClick={resetFilters} className="ml-auto rounded-full px-3 py-1.5 text-xs font-bold text-[#94A3B8] transition hover:bg-white/[0.05] hover:text-[#F8FAFC]">
+            Limpiar filtros
           </button>
-          <div className="flex flex-wrap items-center gap-2 text-xs font-bold" style={{ color: 'var(--text-tertiary)' }}>
-            {hiddenByLimit ? <span>{hiddenByLimit} oculta(s) por limite</span> : null}
-            <button type="button" onClick={resetFilters} className="quick-filter-btn">Limpiar</button>
+        </div>
+
+        <div className="mt-3 flex items-center justify-between gap-3">
+          <button
+            type="button"
+            onClick={() => setAdvancedOpen((v) => !v)}
+            className="flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold text-[#94A3B8] transition hover:bg-white/[0.05] hover:text-[#F8FAFC]"
+          >
+            <SlidersHorizontal size={15} className={advancedOpen ? 'text-blue-400' : ''} />
+            Busqueda avanzada
+            <ChevronDown size={14} className={`transition duration-200 ${advancedOpen ? 'rotate-180' : ''}`} />
+          </button>
+          <div className="flex items-center gap-2">
+            <select id="invoice-list-mode" value={mode} onChange={(e) => setMode(e.target.value)} className="h-9 rounded-xl border border-[#243244] bg-[#0f172a] px-3 text-xs font-bold text-[#F8FAFC] outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30" aria-label="invoice-list-mode">
+              <option value="all" className="bg-[#0f172a]">Modo: todos</option>
+              <option value={invoiceModes.TAXED} className="bg-[#0f172a]">Con ITBIS</option>
+              <option value={invoiceModes.NO_TAX} className="bg-[#0f172a]">Sin ITBIS</option>
+              <option value={invoiceModes.MIXED} className="bg-[#0f172a]">Mixta</option>
+            </select>
+            <select id="invoice-list-status" value={status} onChange={(e) => setStatus(e.target.value)} className="h-9 rounded-xl border border-[#243244] bg-[#0f172a] px-3 text-xs font-bold text-[#F8FAFC] outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30" aria-label="invoice-list-status">
+              <option value="all" className="bg-[#0f172a]">Estado: todos</option>
+              <option value="draft" className="bg-[#0f172a]">Borrador</option>
+              <option value="paid" className="bg-[#0f172a]">Pagada</option>
+              <option value="partial" className="bg-[#0f172a]">Parcial</option>
+              <option value="credit" className="bg-[#0f172a]">Fiada / pendiente</option>
+              <option value="voided" className="bg-[#0f172a]">Anulada</option>
+            </select>
+            <select id="invoice-list-ncf-type" value={ncfType} onChange={(e) => setNcfType(e.target.value)} className="h-9 rounded-xl border border-[#243244] bg-[#0f172a] px-3 text-xs font-bold text-[#F8FAFC] outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30" aria-label="invoice-list-ncf-type">
+              <option value="all" className="bg-[#0f172a]">NCF todos</option>
+              <option className="bg-[#0f172a]">B01</option>
+              <option className="bg-[#0f172a]">B02</option>
+              <option className="bg-[#0f172a]">B14</option>
+              <option className="bg-[#0f172a]">B15</option>
+              <option className="bg-[#0f172a]">E31</option>
+              <option className="bg-[#0f172a]">E32</option>
+              <option className="bg-[#0f172a]">NO_FISCAL</option>
+            </select>
           </div>
         </div>
-        {advancedOpen ? (
-          <div className="advanced-filters-panel">
-            <div className="toolbar-grid">
-              <label><span className="label-dark">Desde</span><input id="invoice-list-date-from" name="invoice-list-date-from" type="date" value={filters.dateFrom} onChange={(e) => setFilter('dateFrom', e.target.value)} className="input-dark" /></label>
-              <label><span className="label-dark">Hasta</span><input id="invoice-list-date-to" name="invoice-list-date-to" type="date" value={filters.dateTo} onChange={(e) => setFilter('dateTo', e.target.value)} className="input-dark" /></label>
-              <label><span className="label-dark">Monto minimo</span><input id="invoice-list-min-total" name="invoice-list-min-total" type="number" min="0" value={filters.minTotal} onChange={(e) => setFilter('minTotal', e.target.value)} className="input-dark" placeholder="0.00" /></label>
-              <label><span className="label-dark">Monto maximo</span><input id="invoice-list-max-total" name="invoice-list-max-total" type="number" min="0" value={filters.maxTotal} onChange={(e) => setFilter('maxTotal', e.target.value)} className="input-dark" placeholder="Sin limite" /></label>
-            </div>
-            <div className="toolbar-grid">
-              <label><span className="label-dark">Vendedor</span><select id="invoice-list-seller" name="invoice-list-seller" value={filters.seller} onChange={(e) => setFilter('seller', e.target.value)} className="input-dark"><option value="all">Todos</option>{sellers.map((seller) => <option key={seller} value={seller}>{seller}</option>)}</select></label>
-              <label><span className="label-dark">Metodo de pago</span><select id="invoice-list-payment-method" name="invoice-list-payment-method" value={filters.paymentMethod} onChange={(e) => setFilter('paymentMethod', e.target.value)} className="input-dark"><option value="all">Todos</option>{paymentMethods.map((payment) => <option key={payment} value={payment}>{payment}</option>)}</select></label>
-              <label><span className="label-dark">Producto / SKU / modelo</span><input id="invoice-list-product-query" name="invoice-list-product-query" value={filters.productQuery} onChange={(e) => setFilter('productQuery', e.target.value)} className="input-dark" placeholder="Ej. iPhone, SKU, laptop" /></label>
-              <label><span className="label-dark">Serial / IMEI</span><input id="invoice-list-serial-query" name="invoice-list-serial-query" value={filters.serialQuery} onChange={(e) => setFilter('serialQuery', e.target.value)} className="input-dark" placeholder="Serial, IMEI o parte" /></label>
-            </div>
-            <div className="toolbar-grid">
-              <label><span className="label-dark">Mostrar maximo</span><select id="invoice-list-result-limit" name="invoice-list-result-limit" value={filters.resultLimit} onChange={(e) => setFilter('resultLimit', e.target.value)} className="input-dark"><option value="5">5 registros</option><option value="10">10 registros</option><option value="25">25 registros</option><option value="50">50 registros</option><option value="100">100 registros</option><option value="all">Todos</option></select></label>
-              <label><span className="label-dark">Orden</span><select id="invoice-list-sort-by" name="invoice-list-sort-by" value={filters.sortBy} onChange={(e) => setFilter('sortBy', e.target.value)} className="input-dark"><option value="newest">Mas recientes</option><option value="oldest">Mas antiguas</option><option value="total_desc">Mayor monto</option><option value="total_asc">Menor monto</option><option value="customer">Cliente A-Z</option><option value="number">Numero / NCF</option></select></label>
+
+        <div className={`grid transition-all duration-300 ease-in-out ${advancedOpen ? 'mt-4 grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
+          <div className="overflow-hidden">
+            <div className="space-y-4 border-t border-[#243244] pt-4">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="space-y-1.5">
+                  <label htmlFor="invoice-list-seller" className="text-xs font-bold text-[#94A3B8]">Vendedor</label>
+                  <select id="invoice-list-seller" value={filters.seller} onChange={(e) => setFilter('seller', e.target.value)} className="h-10 w-full rounded-xl border border-[#243244] bg-[#0f172a] px-3 text-sm text-[#F8FAFC] outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30" aria-label="invoice-list-seller">
+                    <option value="all" className="bg-[#0f172a]">Todos</option>
+                    {sellers.map((s) => <option key={s} value={s} className="bg-[#0f172a]">{s}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="invoice-list-payment-method" className="text-xs font-bold text-[#94A3B8]">Metodo de pago</label>
+                  <select id="invoice-list-payment-method" value={filters.paymentMethod} onChange={(e) => setFilter('paymentMethod', e.target.value)} className="h-10 w-full rounded-xl border border-[#243244] bg-[#0f172a] px-3 text-sm text-[#F8FAFC] outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30" aria-label="invoice-list-payment-method">
+                    <option value="all" className="bg-[#0f172a]">Todos</option>
+                    {paymentMethods.map((p) => <option key={p} value={p} className="bg-[#0f172a]">{p}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="invoice-list-product-query" className="text-xs font-bold text-[#94A3B8]">Producto / SKU</label>
+                  <input id="invoice-list-product-query" value={filters.productQuery} onChange={(e) => setFilter('productQuery', e.target.value)} className="h-10 w-full rounded-xl border border-[#243244] bg-[#0f172a] px-3 text-sm text-[#F8FAFC] outline-none transition placeholder:text-[#94A3B8]/60 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30" placeholder="Ej. iPhone, SKU-001" aria-label="invoice-list-product-query" />
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="invoice-list-serial-query" className="text-xs font-bold text-[#94A3B8]">Serial / IMEI</label>
+                  <input id="invoice-list-serial-query" value={filters.serialQuery} onChange={(e) => setFilter('serialQuery', e.target.value)} className="h-10 w-full rounded-xl border border-[#243244] bg-[#0f172a] px-3 text-sm text-[#F8FAFC] outline-none transition placeholder:text-[#94A3B8]/60 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30" placeholder="Serial o IMEI" aria-label="invoice-list-serial-query" />
+                </div>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="space-y-1.5">
+                  <label htmlFor="invoice-list-date-from" className="text-xs font-bold text-[#94A3B8]">Fecha desde</label>
+                  <input id="invoice-list-date-from" type="date" value={filters.dateFrom} onChange={(e) => setFilter('dateFrom', e.target.value)} className="h-10 w-full rounded-xl border border-[#243244] bg-[#0f172a] px-3 text-sm text-[#F8FAFC] outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30" aria-label="invoice-list-date-from" />
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="invoice-list-date-to" className="text-xs font-bold text-[#94A3B8]">Fecha hasta</label>
+                  <input id="invoice-list-date-to" type="date" value={filters.dateTo} onChange={(e) => setFilter('dateTo', e.target.value)} className="h-10 w-full rounded-xl border border-[#243244] bg-[#0f172a] px-3 text-sm text-[#F8FAFC] outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30" aria-label="invoice-list-date-to" />
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="invoice-list-min-total" className="text-xs font-bold text-[#94A3B8]">Monto minimo</label>
+                  <input id="invoice-list-min-total" type="number" min="0" value={filters.minTotal} onChange={(e) => setFilter('minTotal', e.target.value)} className="h-10 w-full rounded-xl border border-[#243244] bg-[#0f172a] px-3 text-sm text-[#F8FAFC] outline-none transition placeholder:text-[#94A3B8]/60 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30" placeholder="RD$ 0" aria-label="invoice-list-min-total" />
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="invoice-list-max-total" className="text-xs font-bold text-[#94A3B8]">Monto maximo</label>
+                  <input id="invoice-list-max-total" type="number" min="0" value={filters.maxTotal} onChange={(e) => setFilter('maxTotal', e.target.value)} className="h-10 w-full rounded-xl border border-[#243244] bg-[#0f172a] px-3 text-sm text-[#F8FAFC] outline-none transition placeholder:text-[#94A3B8]/60 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30" placeholder="RD$ 999,999" aria-label="invoice-list-max-total" />
+                </div>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="space-y-1.5">
+                  <label htmlFor="invoice-list-result-limit" className="text-xs font-bold text-[#94A3B8]">Mostrar maximo</label>
+                  <select id="invoice-list-result-limit" value={filters.resultLimit} onChange={(e) => setFilter('resultLimit', e.target.value)} className="h-10 w-full rounded-xl border border-[#243244] bg-[#0f172a] px-3 text-sm text-[#F8FAFC] outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30" aria-label="invoice-list-result-limit">
+                    <option value="5" className="bg-[#0f172a]">5 registros</option>
+                    <option value="10" className="bg-[#0f172a]">10 registros</option>
+                    <option value="25" className="bg-[#0f172a]">25 registros</option>
+                    <option value="50" className="bg-[#0f172a]">50 registros</option>
+                    <option value="100" className="bg-[#0f172a]">100 registros</option>
+                    <option value="all" className="bg-[#0f172a]">Todos</option>
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="invoice-list-sort-by" className="text-xs font-bold text-[#94A3B8]">Orden</label>
+                  <select id="invoice-list-sort-by" value={filters.sortBy} onChange={(e) => setFilter('sortBy', e.target.value)} className="h-10 w-full rounded-xl border border-[#243244] bg-[#0f172a] px-3 text-sm text-[#F8FAFC] outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30" aria-label="invoice-list-sort-by">
+                    <option value="newest" className="bg-[#0f172a]">Mas recientes</option>
+                    <option value="oldest" className="bg-[#0f172a]">Mas antiguas</option>
+                    <option value="total_desc" className="bg-[#0f172a]">Mayor monto</option>
+                    <option value="total_asc" className="bg-[#0f172a]">Menor monto</option>
+                    <option value="customer" className="bg-[#0f172a]">Cliente A-Z</option>
+                    <option value="number" className="bg-[#0f172a]">Numero / NCF</option>
+                  </select>
+                </div>
+                <div className="flex items-end gap-2 lg:col-span-2">
+                  <span className="text-xs text-[#94A3B8]">{hiddenByLimit ? `${hiddenByLimit} oculta(s) por limite` : ''}</span>
+                  <div className="ml-auto flex gap-2">
+                    <button type="button" onClick={() => { setAdvancedOpen(false); resetFilters(); }} className="rounded-xl px-5 py-2.5 text-sm font-bold text-[#94A3B8] transition hover:bg-white/[0.05] hover:text-[#F8FAFC]">Limpiar</button>
+                    <button type="button" onClick={() => setAdvancedOpen(false)} className="rounded-xl bg-gradient-to-r from-blue-600 to-blue-500 px-6 py-2.5 text-sm font-bold text-white shadow-lg shadow-blue-500/20 transition hover:from-blue-500 hover:to-blue-400">Aplicar filtros</button>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
-        ) : null}
-        <div className="invoice-select-strip">
-          <select id="invoice-list-mode" name="invoice-list-mode" value={mode} onChange={(e) => setMode(e.target.value)} className="input-dark" aria-label="invoice-list-mode"><option value="all">Modo: todos</option><option value={invoiceModes.TAXED}>Con ITBIS</option><option value={invoiceModes.NO_TAX}>Sin ITBIS</option><option value={invoiceModes.MIXED}>Mixta</option></select>
-          <select id="invoice-list-status" name="invoice-list-status" value={status} onChange={(e) => setStatus(e.target.value)} className="input-dark" aria-label="invoice-list-status"><option value="all">Estado: todos</option><option value="draft">Borrador</option><option value="paid">Pagada</option><option value="partial">Parcialmente pagada</option><option value="credit">Fiada / pendiente</option><option value="voided">Anulada</option></select>
-          <select id="invoice-list-ncf-type" name="invoice-list-ncf-type" value={ncfType} onChange={(e) => setNcfType(e.target.value)} className="input-dark" aria-label="invoice-list-ncf-type"><option value="all">NCF todos</option><option>B01</option><option>B02</option><option>B14</option><option>B15</option><option>E31</option><option>E32</option><option>NO_FISCAL</option></select>
         </div>
       </div>
       <div className="section-divider" />
