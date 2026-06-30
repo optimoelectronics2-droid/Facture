@@ -131,6 +131,24 @@ async function retryPendingDeletes() {
   if (changed) savePendingDeletes()
 }
 
+// ─── Version helper ─────────────────────────────────────────────
+
+function getUpdatedAt(item) {
+  if (!item) return 0
+  const raw = item.updatedAt
+  if (!raw) return 0
+  // Firestore Timestamp
+  if (typeof raw === 'object' && typeof raw.toDate === 'function') return raw.toDate().getTime()
+  // Date object
+  if (raw instanceof Date) return raw.getTime()
+  // ISO string
+  const parsed = new Date(raw)
+  if (!Number.isNaN(parsed.getTime())) return parsed.getTime()
+  // Unix timestamp (number)
+  if (typeof raw === 'number') return raw
+  return 0
+}
+
 // ─── Path helpers ────────────────────────────────────────────────
 
 function colRef(uid, name) {
@@ -363,64 +381,83 @@ function handleRemoteCollection(name, snapshot) {
   const localItems = Array.isArray(localState[name]) ? localState[name] : []
   const remoteItems = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
 
-  // GUARD: Never replace local data with empty remote results
-  // This prevents data loss when Firestore reconnects after a network
-  // error (QUIC protocol failure, etc.) and returns an empty snapshot.
+  // GUARD: Never replace local data with empty remote results.
   if (remoteItems.length === 0 && localItems.length > 0) {
-    if (!pendingState) {
-      applyingRemote = false
-      return
-    }
-    // Even with pending local writes, keep all local items since the
-    // remote snapshot is empty (likely a transient connection issue).
-    pendingState = null
+    applyingRemote = false
+    return
   }
 
   const localMap = new Map(localItems.map((i) => [i.id, i]))
   const remoteMap = new Map(remoteItems.map((i) => [i.id, i]))
 
-  // Initialize pending deletes set for this collection
-  if (!pendingDeletes[name]) pendingDeletes[name] = new Set()
-
-  // Detect items that existed in last synced state but are gone from local → locally deleted
+  // ── Detect locally-purged items ────────────────────────────────
+  // Items that existed in the last-synced state, are gone from local,
+  // and are still present on Firestore → mark as pending deletes so
+  // the remote snapshot cannot re-introduce them.
   if (previousState) {
     const prevItems = Array.isArray(previousState[name]) ? previousState[name] : []
     for (const item of prevItems) {
-      if (item?.id && !localMap.has(item.id)) {
+      if (item?.id && !localMap.has(item.id) && remoteMap.has(item.id)) {
+        if (!pendingDeletes[name]) pendingDeletes[name] = new Set()
         pendingDeletes[name].add(item.id)
       }
     }
   }
 
-  // Clean up confirmed deletes: items deleted from remote no longer need tracking
-  for (const id of pendingDeletes[name]) {
+  // ── Clean up confirmed deletes ─────────────────────────────────
+  // Items no longer on Firestore → remove from pending tracking.
+  for (const id of [...(pendingDeletes[name] || [])]) {
     if (!remoteMap.has(id)) pendingDeletes[name].delete(id)
   }
-
-  // Persist any changes to pending deletes (additions or confirmations)
   savePendingDeletes()
 
+  // ── Version-aware merge ────────────────────────────────────────
+  // Walk every document ID present in local OR remote.  For each:
+  //   - only remote  → new remote doc (unless locally purged)
+  //   - only local   → keep local (remote snapshot is stale/incomplete)
+  //   - both         → pick the version with the newer updatedAt
+  // This guarantees a local soft-delete (deletedAt + newer updatedAt)
+  // can never be reverted by a stale remote snapshot.
+  const allIds = new Set([...localMap.keys(), ...remoteMap.keys()])
   const merged = []
 
-  // 1. Remote items: add/update; skip if locally-deleted (pending remote confirmation)
-  for (const item of remoteItems) {
-    if (!item?.id) continue
-    if (pendingDeletes[name].has(item.id)) continue
-    // When local writes are pending, prefer local version of same item
-    merged.push(pendingState && localMap.has(item.id) ? localMap.get(item.id) : item)
-  }
+  for (const id of allIds) {
+    const local = localMap.get(id)
+    const remote = remoteMap.get(id)
 
-  // 2. Local-only items: keep items that exist locally but not in remote snapshot
-  // This covers the case where the remote snapshot is delayed or incomplete
-  for (const item of localItems) {
-    if (item?.id && !remoteMap.has(item.id)) merged.push(item)
+    // Locally purged → never re-introduce
+    if (!local && pendingDeletes[name]?.has(id)) continue
+
+    // Remote-only → new remote document
+    if (!local && remote) {
+      merged.push(remote)
+      continue
+    }
+
+    // Local-only → keep local
+    if (local && !remote) {
+      merged.push(local)
+      continue
+    }
+
+    // Both local and remote exist → deterministic conflict resolution by updatedAt
+    const localTime = getUpdatedAt(local)
+    const remoteTime = getUpdatedAt(remote)
+
+    if (remoteTime > localTime) {
+      merged.push(remote)   // remote is strictly newer
+    } else {
+      merged.push(local)    // local is newer or equal (prefer local on tie)
+    }
   }
 
   useERPStore.setState({ [name]: merged })
-  previousState = pickSyncState(useERPStore.getState())
+  // NOTE: previousState is deliberately NOT updated here so that the
+  // next writeDiff() can still detect and push pending local changes
+  // to Firestore.  Only flushChanges/writeDiff updates previousState.
   applyingRemote = false
 
-  // Snapshot received successfully — clear error with cooldown to prevent flickering
+  // Clear sync error on successful snapshot
   const now = Date.now()
   if (remoteItems.length > 0 && now - lastErrorTime > ERROR_COOLDOWN_MS) {
     lastErrorTime = now
