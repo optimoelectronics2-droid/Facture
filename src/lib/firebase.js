@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app'
 import { getAuth } from 'firebase/auth'
-import { initializeFirestore, memoryLocalCache } from 'firebase/firestore'
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore'
 import { getStorage } from 'firebase/storage'
 
 export const firebaseConfig = {
@@ -14,7 +14,13 @@ export const firebaseConfig = {
 
 export const app = initializeApp(firebaseConfig)
 export const auth = getAuth(app)
+// Firestore persistent cache keeps data available offline and across tabs.
+// In case of conflict between localStorage (Zustand) and Firestore cache,
+// the real-time sync layer (realtimeSync.js) treats Firestore as authoritative
+// once connection is confirmed. localStorage is the fallback while offline.
 export const db = initializeFirestore(app, {
-  localCache: memoryLocalCache(),
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager(),
+  }),
 })
 export const storage = getStorage(app)

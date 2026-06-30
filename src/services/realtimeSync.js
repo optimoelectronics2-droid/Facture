@@ -41,7 +41,95 @@ let snapshotRetries = {}
 let snapshotResubTimers = {}
 let lastErrorTime = 0
 let pendingDeletes = {}  // { collectionName: Set<id> } — items locally deleted but not yet confirmed by remote
+let pendingDeleteRetryTimer = null
 const ERROR_COOLDOWN_MS = 15000
+const PENDING_DELETES_KEY = 'erp_pending_deletes'
+
+// ─── Pending deletes persistence (survives tab close / reload) ────
+
+function loadPendingDeletes() {
+  try {
+    const raw = localStorage.getItem(PENDING_DELETES_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw)
+    const result = {}
+    for (const [col, ids] of Object.entries(parsed)) {
+      if (Array.isArray(ids)) result[col] = new Set(ids)
+    }
+    return result
+  } catch {
+    return {}
+  }
+}
+
+function savePendingDeletes() {
+  try {
+    const serializable = {}
+    for (const [col, ids] of Object.entries(pendingDeletes)) {
+      if (ids.size > 0) serializable[col] = Array.from(ids)
+    }
+    localStorage.setItem(PENDING_DELETES_KEY, JSON.stringify(serializable))
+  } catch {
+    // localStorage may be full or unavailable; fail silently
+  }
+}
+
+function addPendingDelete(name, id) {
+  if (!pendingDeletes[name]) pendingDeletes[name] = new Set()
+  pendingDeletes[name].add(id)
+  savePendingDeletes()
+}
+
+function removePendingDelete(name, id) {
+  if (pendingDeletes[name]) {
+    pendingDeletes[name].delete(id)
+    savePendingDeletes()
+  }
+}
+
+async function immediateDeleteWithRetry(name, id, attempt = 0) {
+  const maxAttempts = 5
+  const uid = activeUid
+  if (!uid) return
+  try {
+    await deleteDoc(docRef_(uid, name, id))
+    removePendingDelete(name, id)
+  } catch (error) {
+    if (isBlocking(error)) return
+    if (attempt < maxAttempts) {
+      const delay = Math.min(30_000, Math.pow(2, attempt) * 2_000)
+      await new Promise((r) => setTimeout(r, delay))
+      return immediateDeleteWithRetry(name, id, attempt + 1)
+    }
+    savePendingDeletes()
+    const now = Date.now()
+    if (now - lastErrorTime > ERROR_COOLDOWN_MS) {
+      lastErrorTime = now
+      setSyncMeta({
+        syncStatus: 'error',
+        syncError: `No se pudo eliminar ${id} de ${name} tras ${maxAttempts + 1} intentos. Se reintentara al recargar.`
+      })
+    }
+  }
+}
+
+async function retryPendingDeletes() {
+  const uid = activeUid
+  if (!uid) return
+  let changed = false
+  for (const [name, ids] of Object.entries(pendingDeletes)) {
+    for (const id of Array.from(ids)) {
+      try {
+        await deleteDoc(docRef_(uid, name, id))
+        pendingDeletes[name].delete(id)
+        changed = true
+      } catch {
+        // Leave in pendingDeletes; will retry on next startup
+      }
+    }
+  }
+  if (changed) savePendingDeletes()
+}
 
 // ─── Path helpers ────────────────────────────────────────────────
 
@@ -69,6 +157,7 @@ export function startErpRealtimeSync(user) {
   activeUid = user.uid
   syncSuspended = false
   previousState = null
+  pendingDeletes = loadPendingDeletes()
   useERPStore.setState({
     currentUser: {
       id: user.uid,
@@ -92,10 +181,13 @@ export function startErpRealtimeSync(user) {
 export function stopErpRealtimeSync() {
   if (syncTimer) window.clearTimeout(syncTimer)
   syncTimer = null
+  if (pendingDeleteRetryTimer) window.clearTimeout(pendingDeleteRetryTimer)
+  pendingDeleteRetryTimer = null
   Object.values(snapshotResubTimers).forEach(clearTimeout)
   snapshotResubTimers = {}
   snapshotRetries = {}
-  pendingDeletes = {}
+  // pendingDeletes kept in localStorage — do NOT clear across sessions
+  
   unsubscribers.forEach((fn) => fn())
   unsubscribers = []
   unsubscribeStore?.()
@@ -128,7 +220,9 @@ async function initializeUserSync(user) {
   for (const name of COLLECTION_NAMES) {
     try {
       const snapshot = await getDocs(colRef(uid, name))
-      const docs = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
+      const docs = snapshot.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .filter((d) => !pendingDeletes[name]?.has(d.id))
       // GUARD: Never replace local data with empty remote results on initial load.
       // Firestore may return an empty snapshot during QUIC protocol errors,
       // network interruptions, or transient permission issues.
@@ -184,6 +278,9 @@ async function initializeUserSync(user) {
   previousState = pickSyncState(useERPStore.getState())
   syncReady = true
   setSyncMeta({ syncStatus: 'synced', syncError: '' })
+
+  // 4b. Retry any persisted pending deletes that weren't confirmed by Firestore
+  retryPendingDeletes().catch(() => {})
 
   // 5. Subscribe to local store changes
   unsubscribeStore = useERPStore.subscribe((state) => {
@@ -300,6 +397,9 @@ function handleRemoteCollection(name, snapshot) {
     if (!remoteMap.has(id)) pendingDeletes[name].delete(id)
   }
 
+  // Persist any changes to pending deletes (additions or confirmations)
+  savePendingDeletes()
+
   const merged = []
 
   // 1. Remote items: add/update; skip if locally-deleted (pending remote confirmation)
@@ -331,7 +431,26 @@ function handleRemoteCollection(name, snapshot) {
 // ─── Local write direction ───────────────────────────────────────
 
 function scheduleLocalSync(state) {
-  pendingState = pickSyncState(state)
+  const nextState = pickSyncState(state)
+
+  // Immediately detect and persist deletes, then fire deleteDoc without debounce.
+  // This ensures deletions survive tab close / network loss during the debounce window.
+  if (previousState) {
+    for (const name of COLLECTION_NAMES) {
+      const prevItems = Array.isArray(previousState[name]) ? previousState[name] : []
+      const nextItems = Array.isArray(nextState[name]) ? nextState[name] : []
+      const prevIds = new Set(prevItems.filter((i) => i?.id).map((i) => i.id))
+      const nextIds = new Set(nextItems.filter((i) => i?.id).map((i) => i.id))
+      for (const id of prevIds) {
+        if (!nextIds.has(id)) {
+          addPendingDelete(name, id)
+          immediateDeleteWithRetry(name, id).catch(() => {})
+        }
+      }
+    }
+  }
+
+  pendingState = nextState
   if (syncTimer) window.clearTimeout(syncTimer)
   syncTimer = window.setTimeout(() => {
     syncTimer = null

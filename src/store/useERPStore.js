@@ -12,7 +12,7 @@ import {
   serialIdentity,
   validateGlobalSerialIntegrity,
 } from '../lib/inventoryEngine'
-import { assertOpenCashRegister, assertUniqueSerials } from '../lib/validators'
+import { assertOpenCashRegister, assertStockForLines, assertUniqueNcf, assertUniqueSerials, assertValidInvoiceDates, assertCustomerCreditLimit, assertPositiveAmount, assertInvoiceLineItems } from '../lib/validators'
 import {
   buildCompany,
   defaultBranding,
@@ -108,6 +108,9 @@ const genericCustomer = {
   creditLimit: 0,
 }
 const defaultCompany = normalizeCompany({ ...emptyCompany, name: 'Empresa principal', legalName: 'Empresa principal' })
+
+// Collections with Papelera (soft-delete) support
+const SOFT_DELETE_COLLECTIONS = ['invoices', 'quotes', 'customers', 'suppliers', 'products', 'receivables', 'payments', 'conduces', 'creditNotes']
 
 export const useERPStore = create(
   persist(
@@ -441,6 +444,51 @@ export const useERPStore = create(
         }))
         get().addAudit(exists ? 'supplier.update' : 'supplier.create', 'Proveedores', exists ? payload.id : null, payload)
         return payload
+      },
+
+      // ─── Soft-delete / Papelera ──────────────────────────────────
+
+      restoreFromTrash(collectionName, itemId) {
+        if (!SOFT_DELETE_COLLECTIONS.includes(collectionName)) throw new Error(`La coleccion ${collectionName} no soporta papelera.`)
+        const items = get()[collectionName]
+        if (!Array.isArray(items)) throw new Error(`La coleccion ${collectionName} no es un array.`)
+        const item = items.find((i) => i.id === itemId)
+        if (!item) throw new Error(`El registro ${itemId} no existe en ${collectionName}.`)
+        if (!item.deletedAt) throw new Error(`El registro ${itemId} no esta eliminado.`)
+        const restored = { ...item, deletedAt: null, deletedBy: null, deleteReason: null, updatedAt: now() }
+        set((state) => ({ [collectionName]: state[collectionName].map((i) => (i.id === itemId ? restored : i)) }))
+        get().refreshReportStats()
+        get().addAudit(`${collectionName}.restore`, collectionName, itemId, { restored })
+      },
+
+      purgeFromTrash(collectionName, itemId) {
+        if (!SOFT_DELETE_COLLECTIONS.includes(collectionName)) throw new Error(`La coleccion ${collectionName} no soporta papelera.`)
+        const items = get()[collectionName]
+        if (!Array.isArray(items)) throw new Error(`La coleccion ${collectionName} no es un array.`)
+        const item = items.find((i) => i.id === itemId)
+        if (!item) throw new Error(`El registro ${itemId} no existe en ${collectionName}.`)
+        if (!item.deletedAt) throw new Error(`El registro ${itemId} no esta eliminado.`)
+        set((state) => ({ [collectionName]: state[collectionName].filter((i) => i.id !== itemId) }))
+        get().refreshReportStats()
+        get().addAudit(`${collectionName}.purge`, collectionName, itemId, { purged: item })
+      },
+
+      autoPurgeTrash() {
+        const retentionDays = Number(get().settings?.trashRetentionDays || 30)
+        const cutoff = Date.now() - retentionDays * 86400000
+        for (const name of SOFT_DELETE_COLLECTIONS) {
+          const items = get()[name]
+          if (!Array.isArray(items)) continue
+          const toPurge = items.filter((i) => i.deletedAt && new Date(i.deletedAt).getTime() < cutoff)
+          if (toPurge.length === 0) continue
+          const remainingIds = new Set(items.map((i) => i.id))
+          for (const item of toPurge) remainingIds.delete(item.id)
+          set((state) => ({ [name]: state[name].filter((i) => remainingIds.has(i.id)) }))
+          for (const item of toPurge) {
+            get().addAudit(`${name}.auto_purge`, name, item.id, { deletedAt: item.deletedAt, retentionDays })
+          }
+        }
+        get().refreshReportStats()
       },
 
       upsertProduct(product) {
@@ -795,18 +843,12 @@ export const useERPStore = create(
       deleteCustomer(customerId) {
         const customer = get().customers.find((item) => item.id === customerId)
         if (!customer) throw new Error('El cliente no existe.')
-        const hasInvoices = get().invoices.some((invoice) => invoice.customerId === customerId)
         const hasReceivables = get().receivables.some((item) => item.customerId === customerId && item.balance > 0)
         if (hasReceivables) throw new Error('El cliente tiene cuentas pendientes. No se puede eliminar.')
-        if (hasInvoices) {
-          set((state) => ({ customers: state.customers.map((item) => (item.id === customerId ? { ...item, status: 'Inactivo' } : item)) }))
-          get().refreshReportStats()
-          get().addAudit('customer.deactivate', 'Clientes', customer, { ...customer, status: 'Inactivo' })
-          return
-        }
-        set((state) => ({ customers: state.customers.filter((item) => item.id !== customerId) }))
+        const deleted = { ...customer, status: 'Inactivo', deletedAt: now(), deletedBy: get().currentUser?.name || 'Sistema', updatedAt: now() }
+        set((state) => ({ customers: state.customers.map((item) => (item.id === customerId ? deleted : item)) }))
         get().refreshReportStats()
-        get().addAudit('customer.delete', 'Clientes', customer, null)
+        get().addAudit('customer.soft_delete', 'Clientes', customer, deleted)
       },
 
       saveInvoiceDraft(invoiceData) {
@@ -842,8 +884,11 @@ export const useERPStore = create(
 
       createInvoice(invoiceData) {
         assertOpenCashRegister(get().cashRegister, get().settings)
+        assertInvoiceLineItems(invoiceData.items, get().products)
+        assertStockForLines(invoiceData.items, get().products)
+        assertValidInvoiceDates(invoiceData.issueDate, invoiceData.dueDate)
+        if (invoiceData.ncf) assertUniqueNcf(invoiceData.ncf, get().invoices)
         const normalizedInvoiceData = withGenericCustomer(invoiceData)
-        if (!normalizedInvoiceData.items?.length) throw new Error('Agregue al menos un producto o servicio.')
         const maxDiscount = Math.min(Number(get().settings.maxDiscountPercent || 10), 10)
         if (toNumber(normalizedInvoiceData.globalDiscount) > maxDiscount) throw new Error(`El descuento global supera el maximo permitido de ${maxDiscount}%.`)
         const mode = normalizedInvoiceData.mode || invoiceModes.TAXED
@@ -1233,11 +1278,11 @@ export const useERPStore = create(
         const paidCash = relatedPayments.reduce((sum, payment) => sum + toNumber(payment.amount), 0)
         const reversalMovements = removesIssuedInvoice ? buildInvoiceReversalMovements(invoice, get().inventoryMovements, get().products, reason || 'Factura eliminada') : []
         set((state) => ({
-          invoices: state.invoices.filter((item) => item.id !== invoiceId),
+          invoices: state.invoices.map((item) => (item.id === invoiceId ? { ...item, deletedAt: now(), deletedBy: get().currentUser?.name || 'Sistema', deleteReason: reason || 'Borrador eliminado', status: 'voided', updatedAt: now() } : item)),
           products: removesIssuedInvoice ? state.products.map((product) => restoreProductFromDeletedInvoice(product, invoice)) : state.products,
           inventoryMovements: reversalMovements.length ? [...reversalMovements, ...state.inventoryMovements] : state.inventoryMovements,
-          payments: state.payments.map((payment) => (payment.invoiceId === invoiceId ? { ...payment, status: 'deleted', deletedAt: now(), deleteReason: reason || 'Factura eliminada', updatedAt: now() } : payment)),
-          receivables: state.receivables.filter((item) => item.invoiceId !== invoiceId),
+          payments: state.payments.map((payment) => (payment.invoiceId === invoiceId ? { ...payment, status: 'deleted', deletedAt: now(), deletedBy: get().currentUser?.name || 'Sistema', deleteReason: reason || 'Factura eliminada', updatedAt: now() } : payment)),
+          receivables: state.receivables.map((item) => (item.invoiceId === invoiceId ? { ...item, deletedAt: now(), deletedBy: get().currentUser?.name || 'Sistema', deleteReason: reason || 'Factura eliminada', status: 'cancelled', balance: 0, updatedAt: now() } : item)),
           customers: relatedReceivable
             ? state.customers.map((customer) => (customer.id === relatedReceivable.customerId ? { ...customer, balance: Math.max(toNumber(customer.balance) - toNumber(relatedReceivable.balance), 0), updatedAt: now() } : customer))
             : state.customers,
@@ -1324,7 +1369,7 @@ export const useERPStore = create(
       deleteDeliveryNote(deliveryNoteId, reason = 'Eliminacion manual') {
         const deliveryNote = get().conduces.find((item) => item.id === deliveryNoteId)
         if (!deliveryNote) throw new Error('El conduce no existe.')
-        set((state) => ({ conduces: state.conduces.filter((item) => item.id !== deliveryNoteId) }))
+        set((state) => ({ conduces: state.conduces.map((item) => (item.id === deliveryNoteId ? { ...item, deletedAt: now(), deletedBy: get().currentUser?.name || 'Sistema', deleteReason: reason, updatedAt: now() } : item)) }))
         get().refreshReportStats()
         get().addAudit('delivery_note.delete', 'Conduce', deliveryNote, reason)
       },
@@ -1445,8 +1490,9 @@ export const useERPStore = create(
       deleteQuote(quoteId) {
         const quote = get().quotes.find((item) => item.id === quoteId)
         if (!quote) throw new Error('La cotizacion no existe.')
-        const relatedVersions = new Set((quote.versions || []).map((item) => item.id).filter(Boolean))
-        set((state) => ({ quotes: state.quotes.filter((item) => item.id !== quoteId && !relatedVersions.has(item.id)) }))
+        const nowTimestamp = now()
+        const deleted = { ...quote, deletedAt: nowTimestamp, deletedBy: get().currentUser?.name || 'Sistema', updatedAt: nowTimestamp }
+        set((state) => ({ quotes: state.quotes.map((item) => (item.id === quoteId || (quote.versions || []).some((v) => v.id === item.id) ? (item.id === quoteId ? deleted : { ...item, deletedAt: nowTimestamp, deletedBy: get().currentUser?.name || 'Sistema', updatedAt: nowTimestamp }) : item)) }))
         get().refreshReportStats()
         get().addAudit('quote.delete', 'Cotizaciones', quote, null)
       },
@@ -1739,7 +1785,7 @@ export const useERPStore = create(
         const receivable = state.receivables.find((item) => item.id === receivableId || item.invoiceId === receivableId)
         if (!receivable) throw new Error('La cuenta por cobrar no existe.')
         set((current) => ({
-          receivables: current.receivables.filter((item) => item.id !== receivable.id),
+          receivables: current.receivables.map((item) => (item.id !== receivable.id ? item : { ...item, deletedAt: now(), deletedBy: get().currentUser?.name || 'Sistema', deleteReason: reason, updatedAt: now() })),
           invoices: current.invoices.map((invoice) => (
             invoice.id === receivable.invoiceId && ['credit', 'partial'].includes(invoice.status)
               ? { ...invoice, status: 'paid', paymentStatus: 'paid', paidAmount: toNumber(invoice.paidAmount || 0) + toNumber(receivable.balance), balanceDue: 0, updatedAt: now() }
@@ -2261,25 +2307,68 @@ export const useERPStore = create(
         collapsed: state.collapsed,
         commandOpen: false,
       }),
-      migrate: (persistedState) => migrateTenantState(persistedState),
+      migrate: (persistedState) => {
+        const backupKey = 'trifusion-erp-state-migration-backup-' + Date.now()
+        try { localStorage.setItem(backupKey, JSON.stringify(persistedState)) } catch {}
+        const migrated = migrateTenantState(persistedState)
+        // Post-migration validation: ensure critical arrays survived
+        const criticalArrays = ['invoices', 'quotes', 'customers', 'products', 'receivables', 'payments', 'expenses', 'conduces', 'creditNotes', 'suppliers', 'branches', 'stores', 'users']
+        const missing = criticalArrays.filter((name) => !Array.isArray(migrated[name]))
+        if (missing.length > 0) {
+          console.error('[Migrate] Migracion produjo datos corruptos. Colecciones perdidas:', missing.join(', '), 'Backup guardado en', backupKey)
+          // Return the best we have — migrated state may have missing arrays but won't crash
+          for (const name of missing) migrated[name] = []
+        }
+        if (!migrated.companies?.length) {
+          console.warn('[Migrate] No hay empresas tras migracion, usando predeterminada.')
+        }
+        return migrated
+      },
       onRehydrateStorage: () => (state, error) => {
         if (error) {
           console.error('[Persist] Error de rehidratacion, intentando recuperar datos:', error)
+          const persistKey = 'trifusion-erp-state-v2'
           try {
-            var raw = localStorage.getItem('trifusion-erp-state-v2')
+            var raw = localStorage.getItem(persistKey)
             if (raw) {
+              // 1. Save backup BEFORE any destructive action
+              var backupKey = 'trifusion-erp-state-backup-' + Date.now()
+              localStorage.setItem(backupKey, raw)
+              console.warn('[Persist] Backup guardado en', backupKey, 'por si se necesita recuperacion manual.')
+
+              // 2. Try field-by-field recovery: parse what we can, discard only broken fields
               var parsed = tryParseJson(raw)
-              if (parsed && parsed.state && typeof parsed.state === 'object' && Object.keys(parsed.state).length > 3) {
-                console.warn('[Persist] Storage reparado parcialmente, continuando con datos recuperados.')
-                window.location.reload()
-                return
+              if (parsed && parsed.state && typeof parsed.state === 'object') {
+                var recovered = { ...parsed.state }
+                var corrupted = []
+                for (var key of Object.keys(recovered)) {
+                  // Expected arrays that should not be null/undefined
+                  if (['invoices', 'quotes', 'customers', 'products', 'receivables', 'payments', 'expenses', 'conduces', 'creditNotes', 'suppliers', 'branches', 'stores', 'users', 'productEntries', 'inventoryMovements', 'financialMovements', 'serviceOrders', 'taxSequences', 'auditLogs', 'companies', 'companyMemberships'].includes(key)) {
+                    if (!Array.isArray(recovered[key])) {
+                      if (recovered[key] === null || recovered[key] === undefined) {
+                        recovered[key] = []
+                      } else {
+                        corrupted.push(key)
+                        delete recovered[key]
+                      }
+                    }
+                  }
+                }
+                if (Object.keys(recovered).length > 3) {
+                  // Replace storage with cleaned version
+                  localStorage.setItem(persistKey, JSON.stringify({ state: recovered, version: 3 }))
+                  console.warn('[Persist] Storage reparado campo por campo. Campos corruptos eliminados:', corrupted.length > 0 ? corrupted.join(', ') : 'ninguno')
+                  window.location.reload()
+                  return
+                }
               }
             }
           } catch(e) { console.error('[Persist] No se pudo recuperar storage:', e) }
+          // Last resort: full clear
           try {
-            var raw2 = localStorage.getItem('trifusion-erp-state-v2')
-            if (raw2) localStorage.setItem('trifusion-erp-state-v2-backup-' + Date.now(), raw2)
-            localStorage.removeItem('trifusion-erp-state-v2')
+            var raw2 = localStorage.getItem(persistKey)
+            if (raw2) localStorage.setItem('trifusion-erp-state-backup-' + Date.now(), raw2)
+            localStorage.removeItem(persistKey)
           } catch { /* ignore */ }
           window.location.reload()
         } else if (state && state.invoices && state.verifyDataIntegrity) {
@@ -2305,7 +2394,7 @@ export const useERPStore = create(
     },
   ),
 )
-window.__STORE__ = useERPStore
+if (import.meta.env.DEV) window.__STORE__ = useERPStore
 
 function migrateTenantState(state = {}) {
   const legacyCompany = normalizeCompany({ ...defaultCompany, ...(state.company || state.settings || {}) })

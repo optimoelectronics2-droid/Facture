@@ -20,6 +20,7 @@ import {
   Settings,
   ShieldCheck,
   ShoppingCart,
+  Trash2,
   Truck,
   Users,
   Wallet,
@@ -64,14 +65,15 @@ const navGroups = [
       { to: '/contabilidad', label: 'Contabilidad', icon: BookOpenCheck },
     ],
   },
-  {
-    label: 'Control',
-    items: [
-      { to: '/servicio', label: 'Servicio tecnico', icon: Wrench },
-      { to: '/fiscal', label: 'Fiscal DGII', icon: ShieldCheck },
-      { to: '/reportes', label: 'Reportes', icon: BarChart3 },
-    ],
-  },
+    {
+      label: 'Control',
+      items: [
+        { to: '/servicio', label: 'Servicio tecnico', icon: Wrench },
+        { to: '/fiscal', label: 'Fiscal DGII', icon: ShieldCheck },
+        { to: '/reportes', label: 'Reportes', icon: BarChart3 },
+        { to: '/papelera', label: 'Papelera', icon: Trash2 },
+      ],
+    },
   {
     label: 'Sistema',
     items: [{ to: '/configuracion', label: 'Configuracion', icon: Settings }],

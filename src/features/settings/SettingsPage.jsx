@@ -184,6 +184,7 @@ export function SettingsPage() {
           <Input label="Color acento" value={companyDraft.branding?.accentColor || '#10b981'} onChange={(value) => setCompanyDraft((state) => ({ ...state, branding: { ...(state.branding || {}), accentColor: value } }))} />
           <Input type="number" label="Tasa USD" value={companyDraft.exchangeRate} onChange={(value) => setCompanyDraft((state) => ({ ...state, exchangeRate: Number(value) }))} />
           <Input type="number" label="Descuento max %" value={companyDraft.maxDiscountPercent} onChange={(value) => setCompanyDraft((state) => ({ ...state, maxDiscountPercent: Number(value) }))} />
+          <Input type="number" label="Dias retencion papelera" value={companyDraft.trashRetentionDays} onChange={(value) => setCompanyDraft((state) => ({ ...state, trashRetentionDays: Number(value) }))} />
           <label className="flex items-center gap-2 pt-6 text-sm"><input id="require-open-register" type="checkbox" checked={companyDraft.requireOpenRegister} onChange={(e) => setCompanyDraft((state) => ({ ...state, requireOpenRegister: e.target.checked }))} /> Requerir caja abierta</label>
         </div>
         <div className="mt-4 flex justify-end"><Button icon={Save} onClick={saveCompany}>Guardar empresa</Button></div>
