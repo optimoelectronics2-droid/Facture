@@ -39,7 +39,7 @@ export function QuoteForm({ initialQuote, onDone }) {
   }))
   const customer = customers.find((item) => item.id === form.customerId)
   const totals = useMemo(() => calculateInvoice(form.items, form.mode), [form.items, form.mode])
-  const productList = useMemo(() => products.filter((item) => !item.deletedAt && item.status !== 'Eliminado' && item.status !== 'Inactivo'), [products])
+  const productList = useMemo(() => products, [products])
 
   function setLine(lineId, patch) {
     setForm((state) => ({

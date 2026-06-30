@@ -12,7 +12,7 @@ export function isExistingRecord(record) {
 
 export function isDeletedRecord(record) {
   const status = normalizedStatus(record)
-  return Boolean(record?.deletedAt || record?.deleted || record?.isDeleted || INVALID_STATUSES.has(status))
+  return INVALID_STATUSES.has(status)
 }
 
 export function belongsToCompany(record, companyId) {
@@ -85,7 +85,7 @@ export function isActivePayment(payment, invoices = [], receivables = [], compan
 export function isActiveCashMovement(movement, companyId, references = {}) {
   if (!isExistingRecord(movement) || !belongsToCompany(movement, companyId)) return false
   const status = normalizedStatus(movement)
-  if (movement.deletedAt || movement.deleted || status === 'deleted' || status === 'cancelled' || status === 'cancelado' || status === 'voided') return false
+  if (movement.deleted || status === 'deleted' || status === 'cancelled' || status === 'cancelado' || status === 'voided') return false
   return cashMovementHasValidSource(movement, references, companyId)
 }
 

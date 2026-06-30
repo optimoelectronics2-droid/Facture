@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Activity, AlertTriangle, Barcode, Boxes, CheckCircle2, ChevronLeft, ChevronRight, Download, Eye, ImagePlus, Layers3, Loader2, PackagePlus, Pencil, Plus, Printer, RotateCcw, Search, SlidersHorizontal, TrendingUp, Trash2, Truck } from 'lucide-react'
+import { Activity, AlertTriangle, Barcode, Boxes, CheckCircle2, ChevronLeft, ChevronRight, Download, Eye, ImagePlus, Layers3, Loader2, PackagePlus, Pencil, Plus, Printer, Search, SlidersHorizontal, TrendingUp, Trash2, Truck } from 'lucide-react'
 import { Bar } from 'react-chartjs-2'
 import { DataTable } from '../../components/ui/DataTable'
 import { Button } from '../../components/ui/Button'
@@ -60,10 +60,9 @@ export function Inventory() {
   const movements = useERPStore((state) => state.inventoryMovements)
   const upsertProduct = useERPStore((state) => state.upsertProduct)
   const deleteProduct = useERPStore((state) => state.deleteProduct)
-  const restoreProduct = useERPStore((state) => state.restoreProduct)
   const adjustInventory = useERPStore((state) => state.adjustInventory)
   const updateCategories = useERPStore((state) => state.updateCategories)
-  const [filters, setFilters] = useState({ query: '', category: 'all', brand: 'all', tax: 'all', status: 'active', low: false })
+  const [filters, setFilters] = useState({ query: '', category: 'all', brand: 'all', tax: 'all', low: false })
   const debouncedQuery = useDebouncedValue(filters.query, 220)
   const [editing, setEditing] = useState(null)
   const [viewing, setViewing] = useState(null)
@@ -75,22 +74,18 @@ export function Inventory() {
   const [inventoryPage, setInventoryPage] = useState(1)
   const [inventoryPageSize, setInventoryPageSize] = useState(20)
   const brands = useMemo(() => [...new Set(products.map((item) => item.brand).filter(Boolean))], [products])
-  const activeProducts = useMemo(() => products.filter((item) => !item.deletedAt && item.status !== 'Eliminado'), [products])
-  const deletedProducts = useMemo(() => products.filter((item) => item.deletedAt || item.status === 'Eliminado'), [products])
-  const inventoryValue = useMemo(() => activeProducts.reduce((sum, item) => sum + Number(item.cost || 0) * Number(item.stock || 0), 0), [activeProducts])
-  const lowStock = useMemo(() => activeProducts.filter((item) => Number(item.stock || 0) <= Number(item.stockMin || 0)), [activeProducts])
-  const categorySummary = useMemo(() => buildCategorySummary(activeProducts), [activeProducts])
+  const inventoryValue = useMemo(() => products.reduce((sum, item) => sum + Number(item.cost || 0) * Number(item.stock || 0), 0), [products])
+  const lowStock = useMemo(() => products.filter((item) => Number(item.stock || 0) <= Number(item.stockMin || 0)), [products])
+  const categorySummary = useMemo(() => buildCategorySummary(products), [products])
 
   const filtered = useMemo(() => products.filter((item) => {
     const q = normalize(debouncedQuery)
-    const isDeleted = Boolean(item.deletedAt) || item.status === 'Eliminado'
     return (!q || scoreInventoryProduct(item, q) > 0)
       && (filters.category === 'all' || item.category === filters.category)
       && (filters.brand === 'all' || item.brand === filters.brand)
       && (filters.tax === 'all' || item.taxStatus === filters.tax)
-      && (filters.status === 'all' || (filters.status === 'active' ? !isDeleted : isDeleted))
       && (!filters.low || Number(item.stock || 0) <= Number(item.stockMin || 0))
-  }).sort((left, right) => scoreInventoryProduct(right, normalize(debouncedQuery)) - scoreInventoryProduct(left, normalize(debouncedQuery))), [debouncedQuery, filters.brand, filters.category, filters.low, filters.status, filters.tax, products])
+  }).sort((left, right) => scoreInventoryProduct(right, normalize(debouncedQuery)) - scoreInventoryProduct(left, normalize(debouncedQuery))), [debouncedQuery, filters.brand, filters.category, filters.low, filters.tax, products])
   const sortedInventory = useMemo(() => sortInventory(filtered, inventorySort), [filtered, inventorySort])
   const inventoryTotalPages = Math.max(1, Math.ceil(sortedInventory.length / inventoryPageSize))
   const safeInventoryPage = Math.min(inventoryPage, inventoryTotalPages)
@@ -102,7 +97,7 @@ export function Inventory() {
   useEffect(() => {
     const timer = window.setTimeout(() => setInventoryPage(1), 0)
     return () => window.clearTimeout(timer)
-  }, [debouncedQuery, filters.brand, filters.category, filters.low, filters.status, filters.tax, inventoryPageSize, inventorySort])
+  }, [debouncedQuery, filters.brand, filters.category, filters.low, filters.tax, inventoryPageSize, inventorySort])
 
   async function saveProduct(product) {
     const validation = validateProduct(product)
@@ -134,15 +129,6 @@ export function Inventory() {
     try {
       deleteProduct(product.id, 'Soft delete desde inventario')
       toast.success('Producto eliminado del inventario activo.')
-    } catch (error) {
-      toast.error(error.message)
-    }
-  }
-
-  function restore(product) {
-    try {
-      restoreProduct(product.id)
-      toast.success('Producto restaurado correctamente.')
     } catch (error) {
       toast.error(error.message)
     }
@@ -197,16 +183,16 @@ export function Inventory() {
     { header: 'Categoria / Marca', cell: ({ row }) => <span className="text-xs">{row.original.category} <span className="opacity-50">/</span> {row.original.brand || '-'}</span> },
     { header: 'Precio', cell: ({ row }) => currency.format(row.original.price) },
     { header: 'Stock', cell: ({ row }) => <StockIndicator product={row.original} /> },
-    { header: 'Acciones', cell: ({ row }) => <ProductActions product={row.original} onView={setViewing} onEdit={setEditing} onAdjust={openAdjust} onLabel={setLabeling} onDelete={removeProduct} onRestore={restore} />, meta: { align: 'right' } },
+    { header: 'Acciones', cell: ({ row }) => <ProductActions product={row.original} onView={setViewing} onEdit={setEditing} onAdjust={openAdjust} onLabel={setLabeling} onDelete={removeProduct} />, meta: { align: 'right' } },
   ]
 
   return (
     <div className="space-y-0">
       <section className="module-header grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <InventoryMetric title="Productos activos" value={activeProducts.length} detail={`${deletedProducts.length} eliminados recuperables`} />
+        <InventoryMetric title="Productos activos" value={products.length} detail="Total en catalogo" />
         <InventoryMetric title="Valor inventario" value={currency.format(inventoryValue)} detail="Costo x stock disponible" />
         <InventoryMetric title="Stock bajo" value={lowStock.length} detail="Productos que requieren reposicion" tone="danger" />
-        <InventoryMetric title="Serializados" value={activeProducts.filter((item) => item.requiresSerial).length} detail="IMEI / serial controlado" />
+        <InventoryMetric title="Serializados" value={products.filter((item) => item.requiresSerial).length} detail="IMEI / serial controlado" />
       </section>
 
       <section className="section-card">
@@ -223,7 +209,6 @@ export function Inventory() {
           <select id="inv-category" name="inv-category" value={filters.category} onChange={(e) => setFilters((s) => ({ ...s, category: e.target.value }))} className="input-dark max-w-44" aria-label="inv-category"><option value="all">Todas las categorias</option>{categories.map((c) => <option key={c}>{c}</option>)}</select>
           <select id="inv-brand" name="inv-brand" value={filters.brand} onChange={(e) => setFilters((s) => ({ ...s, brand: e.target.value }))} className="input-dark max-w-40" aria-label="inv-brand"><option value="all">Todas las marcas</option>{brands.map((b) => <option key={b}>{b}</option>)}</select>
           <select id="inv-tax" name="inv-tax" value={filters.tax} onChange={(e) => setFilters((s) => ({ ...s, tax: e.target.value }))} className="input-dark max-w-32" aria-label="inv-tax"><option value="all">ITBIS todos</option><option value="taxed">Con ITBIS</option><option value="no_tax">Sin ITBIS</option><option value="exempt">Exento</option></select>
-          <select id="inv-status" name="inv-status" value={filters.status} onChange={(e) => setFilters((s) => ({ ...s, status: e.target.value }))} className="input-dark max-w-32" aria-label="inv-status"><option value="active">Activos</option><option value="deleted">Eliminados</option><option value="all">Todos</option></select>
           <select id="inv-sort" name="inv-sort" value={inventorySort} onChange={(e) => setInventorySort(e.target.value)} className="input-dark max-w-44" aria-label="inv-sort"><option value="category">Orden: categoria</option><option value="stock">Stock</option><option value="quantity">Cantidad</option><option value="value">Valor inventario</option></select>
           <Button variant={filters.low ? 'danger' : 'ghost'} onClick={() => setFilters((s) => ({ ...s, low: !s.low }))}>Stock bajo</Button>
           <Button icon={Download} variant="ghost" onClick={exportInventory}>Excel</Button>
@@ -277,8 +262,7 @@ export function InventoryCenter() {
   const invoices = useERPStore((state) => state.invoices)
   const entries = useERPStore((state) => state.productEntries)
   const suppliers = useERPStore((state) => state.suppliers)
-  const activeProducts = useMemo(() => products.filter((item) => !item.deletedAt && item.status !== 'Eliminado'), [products])
-  const inventoryInsights = useMemo(() => buildInventoryInsights({ products: activeProducts, movements, invoices, entries, suppliers }), [activeProducts, entries, invoices, movements, suppliers])
+  const inventoryInsights = useMemo(() => buildInventoryInsights({ products, movements, invoices, entries, suppliers }), [products, entries, invoices, movements, suppliers])
   return (
     <div>
       <InventoryEnterpriseCenter insights={inventoryInsights} movements={movements} entries={entries} />
@@ -433,15 +417,14 @@ function ProductIdentity({ product, large }) {
   )
 }
 
-function ProductActions({ product, onView, onEdit, onAdjust, onLabel, onDelete, onRestore }) {
-  const deleted = Boolean(product.deletedAt) || product.status === 'Eliminado'
+function ProductActions({ product, onView, onEdit, onAdjust, onLabel, onDelete }) {
   return (
     <div className="action-cluster">
       <Icon icon={Eye} label="Ver" onClick={() => onView(product)} />
-      {!deleted ? <Icon icon={Pencil} label="Editar" onClick={() => onEdit(product)} /> : null}
-      {!deleted ? <Icon icon={SlidersHorizontal} label="Stock" onClick={() => onAdjust(product)} /> : null}
-      {!deleted ? <Icon icon={Barcode} label="Etiquetas" onClick={() => onLabel(product)} /> : null}
-      {deleted ? <Icon icon={RotateCcw} label="Restaurar" onClick={() => onRestore(product)} /> : <Icon icon={Trash2} label="Eliminar" danger onClick={() => onDelete(product)} />}
+      <Icon icon={Pencil} label="Editar" onClick={() => onEdit(product)} />
+      <Icon icon={SlidersHorizontal} label="Stock" onClick={() => onAdjust(product)} />
+      <Icon icon={Barcode} label="Etiquetas" onClick={() => onLabel(product)} />
+      <Icon icon={Trash2} label="Eliminar" danger onClick={() => onDelete(product)} />
     </div>
   )
 }

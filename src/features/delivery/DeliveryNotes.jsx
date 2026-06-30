@@ -20,7 +20,7 @@ export function DeliveryNotes() {
   const [form, setForm] = useState({ id: '', number: '', status: 'open', customerId: customers[0]?.id || '', notesCustomer: '', items: [] })
   const [preview, setPreview] = useState(null)
   const customer = customers.find((item) => item.id === form.customerId)
-  const activeProducts = useMemo(() => products.filter((item) => !item.deletedAt && item.status !== 'Eliminado'), [products])
+  const activeProducts = useMemo(() => products, [products])
 
   function addProduct(productId) {
     const product = products.find((item) => item.id === productId)

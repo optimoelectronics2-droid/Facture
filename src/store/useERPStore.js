@@ -109,8 +109,6 @@ const genericCustomer = {
 }
 const defaultCompany = normalizeCompany({ ...emptyCompany, name: 'Empresa principal', legalName: 'Empresa principal' })
 
-// Collections with Papelera (soft-delete) support
-const SOFT_DELETE_COLLECTIONS = ['invoices', 'quotes', 'customers', 'suppliers', 'products', 'receivables', 'payments', 'conduces', 'creditNotes']
 
 export const useERPStore = create(
   persist(
@@ -448,49 +446,6 @@ export const useERPStore = create(
 
       // ─── Soft-delete / Papelera ──────────────────────────────────
 
-      restoreFromTrash(collectionName, itemId) {
-        if (!SOFT_DELETE_COLLECTIONS.includes(collectionName)) throw new Error(`La coleccion ${collectionName} no soporta papelera.`)
-        const items = get()[collectionName]
-        if (!Array.isArray(items)) throw new Error(`La coleccion ${collectionName} no es un array.`)
-        const item = items.find((i) => i.id === itemId)
-        if (!item) throw new Error(`El registro ${itemId} no existe en ${collectionName}.`)
-        if (!item.deletedAt) throw new Error(`El registro ${itemId} no esta eliminado.`)
-        const restored = { ...item, deletedAt: null, deletedBy: null, deleteReason: null, updatedAt: now() }
-        set((state) => ({ [collectionName]: state[collectionName].map((i) => (i.id === itemId ? restored : i)) }))
-        get().refreshReportStats()
-        get().addAudit(`${collectionName}.restore`, collectionName, itemId, { restored })
-      },
-
-      purgeFromTrash(collectionName, itemId) {
-        if (!SOFT_DELETE_COLLECTIONS.includes(collectionName)) throw new Error(`La coleccion ${collectionName} no soporta papelera.`)
-        const items = get()[collectionName]
-        if (!Array.isArray(items)) throw new Error(`La coleccion ${collectionName} no es un array.`)
-        const item = items.find((i) => i.id === itemId)
-        if (!item) throw new Error(`El registro ${itemId} no existe en ${collectionName}.`)
-        if (!item.deletedAt) throw new Error(`El registro ${itemId} no esta eliminado.`)
-        set((state) => ({ [collectionName]: state[collectionName].filter((i) => i.id !== itemId) }))
-        get().refreshReportStats()
-        get().addAudit(`${collectionName}.purge`, collectionName, itemId, { purged: item })
-      },
-
-      autoPurgeTrash() {
-        const retentionDays = Number(get().settings?.trashRetentionDays || 30)
-        const cutoff = Date.now() - retentionDays * 86400000
-        for (const name of SOFT_DELETE_COLLECTIONS) {
-          const items = get()[name]
-          if (!Array.isArray(items)) continue
-          const toPurge = items.filter((i) => i.deletedAt && new Date(i.deletedAt).getTime() < cutoff)
-          if (toPurge.length === 0) continue
-          const remainingIds = new Set(items.map((i) => i.id))
-          for (const item of toPurge) remainingIds.delete(item.id)
-          set((state) => ({ [name]: state[name].filter((i) => remainingIds.has(i.id)) }))
-          for (const item of toPurge) {
-            get().addAudit(`${name}.auto_purge`, name, item.id, { deletedAt: item.deletedAt, retentionDays })
-          }
-        }
-        get().refreshReportStats()
-      },
-
       upsertProduct(product) {
         const products = get().products
         const sku = product.sku?.trim() || buildSku(product.name)
@@ -532,7 +487,6 @@ export const useERPStore = create(
           soldSerials: existing?.soldSerials || [],
           damagedSerials: existing?.damagedSerials || [],
           status: product.status || 'Activo',
-          deletedAt: product.deletedAt || null,
           taxable: product.taxStatus ? product.taxStatus === 'taxed' : Boolean(product.taxable),
           taxStatus: product.taxStatus || (product.taxable ? 'taxed' : 'exempt'),
           updatedAt: now(),
@@ -589,19 +543,13 @@ export const useERPStore = create(
       deleteProduct(productId, reason = 'Eliminacion manual') {
         const product = get().products.find((item) => item.id === productId)
         if (!product) throw new Error('El producto no existe.')
-        const deleted = { ...product, status: 'Eliminado', deletedAt: now(), deleteReason: reason, updatedAt: now() }
-        set((state) => ({ products: state.products.map((item) => (item.id === productId ? deleted : item)) }))
+        set((state) => ({ products: state.products.filter((item) => item.id !== productId) }))
         get().refreshReportStats()
-        get().addAudit('product.soft_delete', 'Inventario', product, deleted)
+        get().addAudit('product.delete', 'Inventario', product, { reason })
       },
 
       restoreProduct(productId) {
-        const product = get().products.find((item) => item.id === productId)
-        if (!product) throw new Error('El producto no existe.')
-        const restored = { ...product, status: 'Activo', deletedAt: null, deleteReason: '', updatedAt: now() }
-        set((state) => ({ products: state.products.map((item) => (item.id === productId ? restored : item)) }))
-        get().refreshReportStats()
-        get().addAudit('product.restore', 'Inventario', product, restored)
+        throw new Error('La papelera de reciclaje fue desactivada. Los productos eliminados no se pueden recuperar.')
       },
 
       adjustInventory({ productId, quantity, type, reason, serials = [] }) {
@@ -845,10 +793,9 @@ export const useERPStore = create(
         if (!customer) throw new Error('El cliente no existe.')
         const hasReceivables = get().receivables.some((item) => item.customerId === customerId && item.balance > 0)
         if (hasReceivables) throw new Error('El cliente tiene cuentas pendientes. No se puede eliminar.')
-        const deleted = { ...customer, status: 'Inactivo', deletedAt: now(), deletedBy: get().currentUser?.name || 'Sistema', updatedAt: now() }
-        set((state) => ({ customers: state.customers.map((item) => (item.id === customerId ? deleted : item)) }))
+        set((state) => ({ customers: state.customers.filter((item) => item.id !== customerId) }))
         get().refreshReportStats()
-        get().addAudit('customer.soft_delete', 'Clientes', customer, deleted)
+        get().addAudit('customer.delete', 'Clientes', customer, null)
       },
 
       saveInvoiceDraft(invoiceData) {
@@ -901,7 +848,7 @@ export const useERPStore = create(
         items.forEach((item) => {
           const product = get().products.find((productItem) => productItem.id === item.productId)
           if (!product) throw new Error(`El producto ${item.name || item.productId} no existe.`)
-          if (product.status === 'Inactivo' || product.status === 'Eliminado' || product.deletedAt) throw new Error(`${product.name} no esta disponible para facturar.`)
+          if (product.status === 'Inactivo') throw new Error(`${product.name} no esta disponible para facturar.`)
           if (product.category !== 'Servicios' && toNumber(product.stock) < toNumber(item.quantity)) throw new Error(`${product.name} no tiene stock suficiente. Disponible: ${product.stock || 0}.`)
           if (toNumber(item.discount) > maxDiscount) throw new Error(`${product.name} supera el descuento maximo permitido de ${maxDiscount}%.`)
           const minimumPrice = Math.max(toNumber(product.cost), toNumber(item.registeredPrice || product.price) * 0.9)
@@ -1273,18 +1220,23 @@ export const useERPStore = create(
         if (invoice.status !== 'draft' && (!reason?.trim() || reason.trim().length < 10)) throw new Error('La eliminacion requiere un motivo de al menos 10 caracteres.')
         const removesIssuedInvoice = invoice.status !== 'draft'
         const nonCreditCash = removesIssuedInvoice ? getNonCreditAmount(invoice) : 0
-        const relatedReceivable = get().receivables.find((item) => item.invoiceId === invoiceId)
         const relatedPayments = get().payments.filter((payment) => payment.invoiceId === invoiceId && payment.status !== 'voided')
         const paidCash = relatedPayments.reduce((sum, payment) => sum + toNumber(payment.amount), 0)
         const reversalMovements = removesIssuedInvoice ? buildInvoiceReversalMovements(invoice, get().inventoryMovements, get().products, reason || 'Factura eliminada') : []
+        const userName = get().currentUser?.name || 'Sistema'
         set((state) => ({
-          invoices: state.invoices.map((item) => (item.id === invoiceId ? { ...item, deletedAt: now(), deletedBy: get().currentUser?.name || 'Sistema', deleteReason: reason || 'Borrador eliminado', status: 'voided', updatedAt: now() } : item)),
+          invoices: state.invoices.filter((item) => item.id !== invoiceId),
           products: removesIssuedInvoice ? state.products.map((product) => restoreProductFromDeletedInvoice(product, invoice)) : state.products,
           inventoryMovements: reversalMovements.length ? [...reversalMovements, ...state.inventoryMovements] : state.inventoryMovements,
-          payments: state.payments.map((payment) => (payment.invoiceId === invoiceId ? { ...payment, status: 'deleted', deletedAt: now(), deletedBy: get().currentUser?.name || 'Sistema', deleteReason: reason || 'Factura eliminada', updatedAt: now() } : payment)),
-          receivables: state.receivables.map((item) => (item.invoiceId === invoiceId ? { ...item, deletedAt: now(), deletedBy: get().currentUser?.name || 'Sistema', deleteReason: reason || 'Factura eliminada', status: 'cancelled', balance: 0, updatedAt: now() } : item)),
-          customers: relatedReceivable
-            ? state.customers.map((customer) => (customer.id === relatedReceivable.customerId ? { ...customer, balance: Math.max(toNumber(customer.balance) - toNumber(relatedReceivable.balance), 0), updatedAt: now() } : customer))
+          payments: state.payments.map((payment) => (payment.invoiceId === invoiceId ? { ...payment, status: 'voided', updatedAt: now() } : payment)),
+          receivables: state.receivables.map((item) => (item.invoiceId === invoiceId ? { ...item, status: 'cancelled', balance: 0, updatedAt: now() } : item)),
+          customers: state.receivables.some((r) => r.invoiceId === invoiceId)
+            ? state.customers.map((customer) => {
+                const relatedReceivable = state.receivables.find((r) => r.invoiceId === invoiceId && r.customerId === customer.id)
+                return relatedReceivable
+                  ? { ...customer, balance: Math.max(toNumber(customer.balance) - toNumber(relatedReceivable.balance), 0), updatedAt: now() }
+                  : customer
+              })
             : state.customers,
           cashRegister: removesIssuedInvoice
             ? {
@@ -1369,7 +1321,7 @@ export const useERPStore = create(
       deleteDeliveryNote(deliveryNoteId, reason = 'Eliminacion manual') {
         const deliveryNote = get().conduces.find((item) => item.id === deliveryNoteId)
         if (!deliveryNote) throw new Error('El conduce no existe.')
-        set((state) => ({ conduces: state.conduces.map((item) => (item.id === deliveryNoteId ? { ...item, deletedAt: now(), deletedBy: get().currentUser?.name || 'Sistema', deleteReason: reason, updatedAt: now() } : item)) }))
+        set((state) => ({ conduces: state.conduces.filter((item) => item.id !== deliveryNoteId) }))
         get().refreshReportStats()
         get().addAudit('delivery_note.delete', 'Conduce', deliveryNote, reason)
       },
@@ -1490,9 +1442,8 @@ export const useERPStore = create(
       deleteQuote(quoteId) {
         const quote = get().quotes.find((item) => item.id === quoteId)
         if (!quote) throw new Error('La cotizacion no existe.')
-        const nowTimestamp = now()
-        const deleted = { ...quote, deletedAt: nowTimestamp, deletedBy: get().currentUser?.name || 'Sistema', updatedAt: nowTimestamp }
-        set((state) => ({ quotes: state.quotes.map((item) => (item.id === quoteId || (quote.versions || []).some((v) => v.id === item.id) ? (item.id === quoteId ? deleted : { ...item, deletedAt: nowTimestamp, deletedBy: get().currentUser?.name || 'Sistema', updatedAt: nowTimestamp }) : item)) }))
+        const versionIds = new Set([quoteId, ...(quote.versions || []).map((v) => v.id)])
+        set((state) => ({ quotes: state.quotes.filter((item) => !versionIds.has(item.id)) }))
         get().refreshReportStats()
         get().addAudit('quote.delete', 'Cotizaciones', quote, null)
       },
@@ -1702,10 +1653,10 @@ export const useERPStore = create(
         const nextBalance = moneyValue(toNumber(receivable.balance) + paymentAmount)
         const nextPaid = moneyValue(Math.max(toNumber(receivable.paid) - paymentAmount, 0))
         set((current) => ({
-          payments: current.payments.map((item) => (item.id === paymentId ? { ...item, status: 'deleted', deletedAt: now(), deleteReason: reason, updatedAt: now() } : item)),
+          payments: current.payments.filter((item) => item.id !== paymentId),
           receivables: current.receivables.map((item) => (
             item.invoiceId === payment.invoiceId
-              ? { ...item, paid: nextPaid, balance: nextBalance, status: receivableStatus({ ...item, paid: nextPaid, balance: nextBalance }), payments: (item.payments || []).map((row) => (row.id === paymentId ? { ...row, status: 'deleted', deletedAt: now(), deleteReason: reason, updatedAt: now() } : row)), updatedAt: now() }
+              ? { ...item, paid: nextPaid, balance: nextBalance, status: receivableStatus({ ...item, paid: nextPaid, balance: nextBalance }), payments: (item.payments || []).filter((row) => row.id !== paymentId), updatedAt: now() }
               : item
           )),
           invoices: current.invoices.map((invoice) => (
@@ -1785,7 +1736,7 @@ export const useERPStore = create(
         const receivable = state.receivables.find((item) => item.id === receivableId || item.invoiceId === receivableId)
         if (!receivable) throw new Error('La cuenta por cobrar no existe.')
         set((current) => ({
-          receivables: current.receivables.map((item) => (item.id !== receivable.id ? item : { ...item, deletedAt: now(), deletedBy: get().currentUser?.name || 'Sistema', deleteReason: reason, updatedAt: now() })),
+          receivables: current.receivables.filter((item) => item.id !== receivable.id),
           invoices: current.invoices.map((invoice) => (
             invoice.id === receivable.invoiceId && ['credit', 'partial'].includes(invoice.status)
               ? { ...invoice, status: 'paid', paymentStatus: 'paid', paidAmount: toNumber(invoice.paidAmount || 0) + toNumber(receivable.balance), balanceDue: 0, updatedAt: now() }
@@ -1906,11 +1857,10 @@ export const useERPStore = create(
       deletePayable(payableId, reason = 'Eliminacion manual') {
         const payable = get().expenses.find((item) => item.id === payableId && item.type === 'account_payable')
         if (!payable) throw new Error('La cuenta por pagar no existe.')
-        const deleted = { ...payable, status: 'cancelled', balance: 0, deletedAt: now(), cancelReason: reason, updatedAt: now() }
-        set((state) => ({ expenses: state.expenses.map((item) => (item.id === payable.id ? deleted : item)) }))
+        set((state) => ({ expenses: state.expenses.filter((item) => item.id !== payable.id) }))
         get().refreshReportStats()
         get().addAudit('payable.delete', 'Cuentas por pagar', payable, { reason })
-        return deleted
+        return payable
       },
 
       registerCashMovement({ type, amount, method, concept, reference = '', category = '', destination = '', messenger = '', movementDate = '', channel = '', notes = '' }) {
@@ -2083,11 +2033,7 @@ export const useERPStore = create(
         }
 
         set((current) => ({
-          invoices: current.invoices.map((inv) =>
-            invalidStatuses.has(String(inv.status || '').toLowerCase())
-              ? { ...inv, deletedAt: inv.deletedAt || new Date().toISOString(), deleteReason: 'Auto-cleanup: status invalido' }
-              : inv
-          ),
+          invoices: current.invoices.filter((inv) => !invalidStatuses.has(String(inv.status || '').toLowerCase())),
           receivables: (current.receivables || []).filter((rec) => {
             const invoice = current.invoices.find((inv) => inv.id === rec.invoiceId)
             if (!invoice) return false
@@ -2818,7 +2764,7 @@ function validateEditableInvoiceItems({ items, products, maxDiscount, originalPr
     if (originalProductIds?.has(productId)) return
     const product = products.find((item) => item.id === productId)
     if (!product) throw new Error(`El producto ${productId} no existe.`)
-    if (product.status === 'Inactivo' || product.status === 'Eliminado' || product.deletedAt) throw new Error(`${product.name} no esta disponible para facturar.`)
+    if (product.status === 'Inactivo') throw new Error(`${product.name} no esta disponible para facturar.`)
   })
   items.forEach((item) => {
     const product = products.find((productItem) => productItem.id === item.productId)

@@ -71,7 +71,7 @@ export function InvoiceForm({ initialInvoice, duplicateOf, onDone }) {
 
   const selectedCustomer = customers.find((customer) => customer.id === form.customerId)
   const sequence = taxSequences.find((item) => item.id === form.ncfType)
-  const visibleProducts = useMemo(() => uniqueById(products.filter((item) => !item.deletedAt && item.status !== 'Eliminado' && item.status !== 'Inactivo')), [products])
+  const visibleProducts = useMemo(() => uniqueById(products), [products])
   const discountedItems = useMemo(() => form.items.map((item) => ({ ...item, discount: Number(item.discount || 0) + Number(form.globalDiscount || 0) })), [form.globalDiscount, form.items])
   const totals = useMemo(() => calculateInvoice(discountedItems, form.mode), [discountedItems, form.mode])
   const invoiceForPreview = { ...form, number: previewDocumentNumber(sequence), ncf: form.ncfType === 'NO_FISCAL' ? '' : previewDocumentNumber(sequence), totals, createdAt: form.issueDate, status: 'preview' }

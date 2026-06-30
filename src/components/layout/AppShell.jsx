@@ -20,7 +20,6 @@ import {
   Settings,
   ShieldCheck,
   ShoppingCart,
-  Trash2,
   Truck,
   Users,
   Wallet,
@@ -71,7 +70,6 @@ const navGroups = [
         { to: '/servicio', label: 'Servicio tecnico', icon: Wrench },
         { to: '/fiscal', label: 'Fiscal DGII', icon: ShieldCheck },
         { to: '/reportes', label: 'Reportes', icon: BarChart3 },
-        { to: '/papelera', label: 'Papelera', icon: Trash2 },
       ],
     },
   {

@@ -27,7 +27,6 @@ const ServiceDesk = lazy(() => import('./features/service/ServiceDesk').then((mo
 const Fiscal = lazy(() => import('./features/fiscal/Fiscal').then((module) => ({ default: module.Fiscal })))
 const Reports = lazy(() => import('./features/reports/Reports').then((module) => ({ default: module.Reports })))
 const SettingsPage = lazy(() => import('./features/settings/SettingsPage').then((module) => ({ default: module.SettingsPage })))
-const TrashPage = lazy(() => import('./features/trash/TrashPage').then((module) => ({ default: module.TrashPage })))
 const QuoteList = lazy(() => import('./features/quotes/QuoteList').then((module) => ({ default: module.QuoteList })))
 const QuoteCreate = lazy(() => import('./features/quotes/quote-create/QuoteCreate').then((module) => ({ default: module.QuoteCreate })))
 const QuoteEdit = lazy(() => import('./features/quotes/quote-edit/QuoteEdit').then((module) => ({ default: module.QuoteEdit })))
@@ -98,7 +97,6 @@ export default function App() {
             <Route path="/fiscal" element={<Fiscal />} />
             <Route path="/reportes" element={<Reports />} />
             <Route path="/configuracion" element={<SettingsPage />} />
-            <Route path="/papelera" element={<TrashPage />} />
           </Route>
           </Routes>
         </Suspense>

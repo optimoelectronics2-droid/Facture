@@ -38,18 +38,16 @@ export function POS() {
   const selectedCustomerId = customerId || ''
   const customer = customers.find((item) => item.id === selectedCustomerId)
   const totals = useMemo(() => calculateInvoice(cart, mode), [cart, mode])
-  const availableProducts = useMemo(() => products.filter((product) => !product.deletedAt && product.status !== 'Eliminado' && product.status !== 'Inactivo'), [products])
   const filtered = useMemo(() => {
     if (!query.trim()) return []
-    return availableProducts
+    return products
       .filter((product) => `${product.name} ${product.sku} ${product.barcode} ${(product.serials || []).join(' ')}`.toLowerCase().includes(query.toLowerCase()))
-  }, [availableProducts, query])
+  }, [products, query])
   const customerResults = useMemo(() => {
     const text = normalize(customerQuery)
     if (customerId) return []
     if (!text) return []
     return customers
-      .filter((item) => item.status !== 'Eliminado')
       .map((item) => ({ customer: item, score: scoreCustomer(item, text) }))
       .filter((entry) => entry.score > 0)
       .sort((left, right) => right.score - left.score || String(left.customer.name || '').localeCompare(String(right.customer.name || '')))
