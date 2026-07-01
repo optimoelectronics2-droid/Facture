@@ -39,47 +39,16 @@ export const defaultBranding = {
   currency: 'DOP',
 }
 
-export const tenantCollections = [
-  'branches',
-  'stores',
-  'users',
-  'products',
-  'productEntries',
-  'inventoryMovements',
-  'customers',
-  'suppliers',
-  'invoices',
-  'quotes',
-  'receivables',
-  'payments',
-  'financialMovements',
-  'expenses',
-  'conduces',
-  'creditNotes',
-  'serviceOrders',
-  'taxSequences',
-  'auditLogs',
-]
+export function scopeRecord(record) {
+  return record
+}
 
-export const tenantSingletons = [
-  'company',
-  'settings',
-  'cashRegister',
-  'categories',
-  'selectedBranch',
-  'documentCounters',
-  'reportStats',
-  'inventoryReports',
-]
-
-export function buildCompany(input = {}, owner = {}) {
-  const companyId = input.id || `company-${crypto.randomUUID()}`
-  const createdAt = input.createdAt || new Date().toISOString()
+export function normalizeCompany(input = {}) {
   return {
-    id: companyId,
-    ownerId: input.ownerId || owner.id || owner.uid || 'local-admin',
-    name: input.name || 'Nueva empresa',
-    legalName: input.legalName || input.name || 'Nueva empresa',
+    id: input.id || `company-${crypto.randomUUID()}`,
+    ownerId: input.ownerId || 'local-admin',
+    name: input.name || 'Empresa principal',
+    legalName: input.legalName || input.name || 'Empresa principal',
     rnc: input.rnc || '',
     address: input.address || '',
     city: input.city || '',
@@ -93,26 +62,8 @@ export function buildCompany(input = {}, owner = {}) {
     status: input.status || 'active',
     fiscal: { ...defaultFiscalSettings, ...(input.fiscal || {}) },
     branding: { ...defaultBranding, ...(input.branding || {}) },
-    createdAt,
-    updatedAt: input.updatedAt || createdAt,
-  }
-}
-
-export function normalizeCompany(input = {}, owner = {}) {
-  const company = buildCompany(input, owner)
-  return {
-    ...company,
-    fiscal: { ...defaultFiscalSettings, ...(input.fiscal || company.fiscal || {}) },
-    branding: { ...defaultBranding, ...(input.branding || company.branding || {}) },
-  }
-}
-
-export function scopeRecord(record, companyId) {
-  if (!record || !companyId) return record
-  return {
-    ...record,
-    companyId: record.companyId || companyId,
-    tenantId: record.tenantId || companyId,
+    createdAt: input.createdAt || new Date().toISOString(),
+    updatedAt: input.updatedAt || input.createdAt || new Date().toISOString(),
   }
 }
 

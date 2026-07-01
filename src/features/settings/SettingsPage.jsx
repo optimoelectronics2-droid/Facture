@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Building2, Pencil, Plus, Printer, Save, ShieldCheck, Sparkles, Trash2 } from 'lucide-react'
+import { Building2, Printer, Save, ShieldCheck, Sparkles, Trash2 } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { useToast } from '../../hooks/useToast'
 import { useERPStore } from '../../store/useERPStore'
@@ -8,8 +8,6 @@ import { LABEL_SIZES, DPI_VALUES } from '../../lib/labelEngine'
 
 export function SettingsPage() {
   const toast = useToast()
-  const companies = useERPStore((state) => state.companies)
-  const activeCompanyId = useERPStore((state) => state.activeCompanyId)
   const company = useERPStore((state) => state.company)
   const branches = useERPStore((state) => state.branches)
   const suppliers = useERPStore((state) => state.suppliers)
@@ -19,19 +17,12 @@ export function SettingsPage() {
   const updateSettings = useERPStore((state) => state.updateSettings)
   const updateFiscalSettings = useERPStore((state) => state.updateFiscalSettings)
   const updateBrandingSettings = useERPStore((state) => state.updateBrandingSettings)
-  const createCompany = useERPStore((state) => state.createCompany)
-  const updateCompany = useERPStore((state) => state.updateCompany)
-  const deleteCompany = useERPStore((state) => state.deleteCompany)
-  const switchCompany = useERPStore((state) => state.switchCompany)
   const updateCategories = useERPStore((state) => state.updateCategories)
   const updateExchangeRate = useERPStore((state) => state.updateExchangeRate)
   const upsertBranch = useERPStore((state) => state.upsertBranch)
   const upsertSupplier = useERPStore((state) => state.upsertSupplier)
   const updateTaxSequence = useERPStore((state) => state.updateTaxSequence)
   const [companyDraft, setCompanyDraft] = useState(company)
-  const [editingCompanyId, setEditingCompanyId] = useState('')
-  const [editingCompanyDraft, setEditingCompanyDraft] = useState({ name: '', rnc: '', phone: '', email: '' })
-  const [newCompanyDraft, setNewCompanyDraft] = useState({ name: '', rnc: '', phone: '', email: '' })
   const [fiscalDraft, setFiscalDraft] = useState({ ...defaultFiscalSettings, ...(company.fiscal || {}) })
   const [branchDraft, setBranchDraft] = useState({ name: '', address: '', city: '', province: '', phone: '', warehouse: '', register: '' })
   const [supplierDraft, setSupplierDraft] = useState({ name: '', rnc: '', phone: '', email: '', active: true })
@@ -60,52 +51,6 @@ export function SettingsPage() {
       toast.error(error.message)
     }
   }
-  function handleCreateCompany() {
-    try {
-      if (!newCompanyDraft.name.trim()) throw new Error('Escriba el nombre de la empresa.')
-      const created = createCompany(newCompanyDraft)
-      setNewCompanyDraft({ name: '', rnc: '', phone: '', email: '' })
-      toast.success(`Empresa creada: ${created.name}`)
-    } catch (error) {
-      toast.error(error.message)
-    }
-  }
-  function handleSwitchCompany(companyId) {
-    const selected = companies.find((item) => item.id === companyId)
-    switchCompany(companyId)
-    if (selected) {
-      setCompanyDraft(selected)
-      setFiscalDraft({ ...defaultFiscalSettings, ...(selected.fiscal || {}) })
-      setCategoryText(categories.join(', '))
-    }
-  }
-  function startEditCompany(item) {
-    setEditingCompanyId(item.id)
-    setEditingCompanyDraft({ name: item.name || '', rnc: item.rnc || '', phone: item.phone || '', email: item.email || '' })
-  }
-  function handleUpdateCompany() {
-    try {
-      if (!editingCompanyDraft.name.trim()) throw new Error('Escriba el nombre de la empresa.')
-      const updated = updateCompany(editingCompanyId, editingCompanyDraft)
-      if (updated.id === activeCompanyId) setCompanyDraft(updated)
-      setEditingCompanyId('')
-      toast.success(`Empresa actualizada: ${updated.name}`)
-    } catch (error) {
-      toast.error(error.message)
-    }
-  }
-  function handleDeleteCompany(companyId) {
-    try {
-      const target = companies.find((item) => item.id === companyId)
-      if (!window.confirm(`Eliminar empresa "${target?.name || companyId}"? Esta accion quita su workspace local sincronizable.`)) return
-      const deleted = deleteCompany(companyId)
-      setCompanyDraft(useERPStore.getState().company)
-      setFiscalDraft({ ...defaultFiscalSettings, ...(useERPStore.getState().company.fiscal || {}) })
-      toast.success(`Empresa eliminada: ${deleted.name}`)
-    } catch (error) {
-      toast.error(error.message)
-    }
-  }
   function saveBranch() {
     try {
       if (!branchDraft.name.trim()) throw new Error('El nombre de la tienda/sucursal es obligatorio.')
@@ -129,47 +74,11 @@ export function SettingsPage() {
 
   return (
     <div className="space-y-5">
-      <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
-        <div>
-          <div className="mb-4 flex items-center gap-3"><Sparkles className="text-emerald-300" /><div><h2 className="font-display text-2xl font-bold">SaaS multiempresa</h2><p className="text-sm text-white/45">Cada empresa trabaja en su propio workspace local sincronizable sin mezclar inventario, facturas ni reportes.</p></div></div>
-          <div className="grid gap-3 md:grid-cols-2">
-            <Field label="Empresa activa"><select id="active-company" value={activeCompanyId} onChange={(event) => handleSwitchCompany(event.target.value)} className="input-dark">{companies.map((item) => <option key={item.id} value={item.id}>{item.name || item.legalName || item.id}</option>)}</select></Field>
-            <div className="rounded-lg border border-white/10 bg-white/[0.035] p-3 text-sm text-white/60">
-              <p className="font-bold text-white">{company.name || 'Empresa sin nombre'}</p>
-              <p>{company.rnc || 'Sin RNC'} · {company.email || 'Sin email'}</p>
-              <p className="mt-1 text-xs text-white/38">ID tenant: {company.id}</p>
-            </div>
-          </div>
-          <div className="mt-4 grid gap-2">
-            {companies.map((item) => (
-              <div key={item.id} className="rounded-lg border border-white/10 bg-white/[0.035] p-3">
-                {editingCompanyId === item.id ? (
-                  <div className="grid gap-2 md:grid-cols-[1fr_130px_130px_1fr_auto]">
-                    <input id="edit-company-name" value={editingCompanyDraft.name} onChange={(event) => setEditingCompanyDraft((state) => ({ ...state, name: event.target.value }))} className="input-dark" placeholder="Nombre" aria-label="edit-company-name" />
-                    <input id="edit-company-rnc" value={editingCompanyDraft.rnc} onChange={(event) => setEditingCompanyDraft((state) => ({ ...state, rnc: event.target.value }))} className="input-dark" placeholder="RNC" aria-label="edit-company-rnc" />
-                    <input id="edit-company-phone" value={editingCompanyDraft.phone} onChange={(event) => setEditingCompanyDraft((state) => ({ ...state, phone: event.target.value }))} className="input-dark" placeholder="Telefono" aria-label="edit-company-phone" />
-                    <input id="edit-company-email" value={editingCompanyDraft.email} onChange={(event) => setEditingCompanyDraft((state) => ({ ...state, email: event.target.value }))} className="input-dark" placeholder="Email" aria-label="edit-company-email" />
-                    <div className="flex gap-2"><Button icon={Save} onClick={handleUpdateCompany}>Guardar</Button><Button variant="ghost" onClick={() => setEditingCompanyId('')}>Cancelar</Button></div>
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                    <div><p className="font-bold text-white">{item.name || item.legalName || item.id}</p><p className="text-sm text-white/45">{item.rnc || 'Sin RNC'} · {item.phone || 'Sin telefono'} · {item.email || 'Sin email'}</p></div>
-                    <div className="flex gap-2"><Button variant="ghost" icon={Pencil} onClick={() => startEditCompany(item)}>Editar</Button><Button variant="danger" icon={Trash2} disabled={companies.length <= 1} onClick={() => handleDeleteCompany(item.id)}>Eliminar</Button></div>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-        <div>
-          <h3 className="font-display text-xl font-bold">Crear empresa</h3>
-          <div className="mt-4 grid gap-3">
-            {['name:Nombre empresa', 'rnc:RNC', 'phone:Telefono', 'email:Email'].map((item) => {
-              const [key, label] = item.split(':')
-              return <Input key={key} label={label} value={newCompanyDraft[key]} onChange={(value) => setNewCompanyDraft((state) => ({ ...state, [key]: value }))} />
-            })}
-          </div>
-          <Button icon={Plus} className="mt-4 w-full" onClick={handleCreateCompany}>Crear y cambiar</Button>
+      <section>
+        <div className="mb-4 flex items-center gap-3"><Building2 className="text-blue-300" /><div><h2 className="font-display text-2xl font-bold">Mi empresa</h2><p className="text-sm text-white/45">Configuracion de la empresa, datos fiscales y preferencias.</p></div></div>
+        <div className="rounded-lg border border-white/10 bg-white/[0.035] p-3 text-sm text-white/60">
+          <p className="font-bold text-white">{company.name || 'Empresa sin nombre'}</p>
+          <p>{company.rnc || 'Sin RNC'} · {company.email || 'Sin email'}</p>
         </div>
       </section>
 
@@ -298,7 +207,6 @@ export function SettingsPage() {
           }}>Recalcular balances</Button>
         </div>
       </section>
-
 
     </div>
   )

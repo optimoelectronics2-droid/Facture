@@ -5,7 +5,6 @@ import { auth } from './lib/firebase'
 import { AppShell } from './components/layout/AppShell'
 import { ToastViewport } from './components/ui/Toast'
 import { AuthPage } from './features/auth/AuthPage'
-import { CompanyProvider } from './context/CompanyProvider'
 import { useERPStore } from './store/useERPStore'
 import { startErpRealtimeSync } from './services/realtimeSync'
 
@@ -65,42 +64,40 @@ export default function App() {
     <>
       {syncStatus === 'connecting' || syncStatus === 'uploading' ? <div className="fixed right-4 top-4 z-50 rounded-lg border border-white/10 bg-black/70 px-3 py-2 text-xs font-bold text-white/70">Sincronizando datos...</div> : null}
       {syncStatus === 'error' ? <div className="fixed right-4 top-4 z-50 max-w-md rounded-lg border border-red-400/30 bg-red-950/90 px-3 py-2 text-xs font-bold text-red-100 shadow-2xl">Error de sincronizacion: {syncError}</div> : null}
-      <CompanyProvider>
-        <Suspense fallback={<div className="grid min-h-[55vh] place-items-center"><div className="premium-loader"><span />Cargando modulo...</div></div>}>
-          <Routes>
-            <Route element={<AppShell />}>
-            <Route index element={<POS />} />
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/dashboard/:moduleId" element={<DashboardKpiPage />} />
-            <Route path="/pos" element={<POS />} />
-            <Route path="/facturacion" element={<InvoiceHistoryPage />} />
-            <Route path="/facturacion/historial" element={<InvoiceHistoryPage />} />
-            <Route path="/facturacion/nueva" element={<InvoiceCreate />} />
-            <Route path="/facturacion/:invoiceId" element={<InvoiceDetails />} />
-            <Route path="/facturacion/:invoiceId/editar" element={<InvoiceEdit />} />
-            <Route path="/facturacion/:invoiceId/imprimir" element={<InvoicePrint />} />
-            <Route path="/cotizaciones" element={<QuoteList />} />
-            <Route path="/cotizaciones/nueva" element={<QuoteCreate />} />
-            <Route path="/cotizaciones/:quoteId/editar" element={<QuoteEdit />} />
-            <Route path="/conduces" element={<DeliveryNotes />} />
-            <Route path="/inventario" element={<Inventory />} />
-            <Route path="/inventario/centro" element={<InventoryCenter />} />
-            <Route path="/inventario/entradas" element={<ProductEntry />} />
-            <Route path="/clientes" element={<CRM />} />
-            <Route path="/cxc" element={<Receivables />} />
-            <Route path="/movimientos-financieros" element={<FinancialMovements />} />
-            <Route path="/cxp" element={<Payables />} />
-            <Route path="/caja" element={<CashDesk />} />
-            <Route path="/movimientos-manuales" element={<CashDesk manualOnly />} />
-            <Route path="/contabilidad" element={<AccountingJournal />} />
-            <Route path="/servicio" element={<ServiceDesk />} />
-            <Route path="/fiscal" element={<Fiscal />} />
-            <Route path="/reportes" element={<Reports />} />
-            <Route path="/configuracion" element={<SettingsPage />} />
-          </Route>
-          </Routes>
-        </Suspense>
-      </CompanyProvider>
+      <Suspense fallback={<div className="grid min-h-[55vh] place-items-center"><div className="premium-loader"><span />Cargando modulo...</div></div>}>
+        <Routes>
+          <Route element={<AppShell />}>
+          <Route index element={<POS />} />
+          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/dashboard/:moduleId" element={<DashboardKpiPage />} />
+          <Route path="/pos" element={<POS />} />
+          <Route path="/facturacion" element={<InvoiceHistoryPage />} />
+          <Route path="/facturacion/historial" element={<InvoiceHistoryPage />} />
+          <Route path="/facturacion/nueva" element={<InvoiceCreate />} />
+          <Route path="/facturacion/:invoiceId" element={<InvoiceDetails />} />
+          <Route path="/facturacion/:invoiceId/editar" element={<InvoiceEdit />} />
+          <Route path="/facturacion/:invoiceId/imprimir" element={<InvoicePrint />} />
+          <Route path="/cotizaciones" element={<QuoteList />} />
+          <Route path="/cotizaciones/nueva" element={<QuoteCreate />} />
+          <Route path="/cotizaciones/:quoteId/editar" element={<QuoteEdit />} />
+          <Route path="/conduces" element={<DeliveryNotes />} />
+          <Route path="/inventario" element={<Inventory />} />
+          <Route path="/inventario/centro" element={<InventoryCenter />} />
+          <Route path="/inventario/entradas" element={<ProductEntry />} />
+          <Route path="/clientes" element={<CRM />} />
+          <Route path="/cxc" element={<Receivables />} />
+          <Route path="/movimientos-financieros" element={<FinancialMovements />} />
+          <Route path="/cxp" element={<Payables />} />
+          <Route path="/caja" element={<CashDesk />} />
+          <Route path="/movimientos-manuales" element={<CashDesk manualOnly />} />
+          <Route path="/contabilidad" element={<AccountingJournal />} />
+          <Route path="/servicio" element={<ServiceDesk />} />
+          <Route path="/fiscal" element={<Fiscal />} />
+          <Route path="/reportes" element={<Reports />} />
+          <Route path="/configuracion" element={<SettingsPage />} />
+        </Route>
+        </Routes>
+      </Suspense>
       <ToastViewport />
     </>
   )

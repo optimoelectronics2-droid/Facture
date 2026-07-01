@@ -1,4 +1,4 @@
-import { isActiveReceivable, isReportableInvoice, isActiveCreditNote, isActiveExpense, isActiveProduct, isActivePayment } from './realDataGuards.js'
+import { INVALID_STATUSES, isActiveReceivable, isReportableInvoice, isActiveCreditNote, isActiveExpense, isActiveProduct, isActivePayment } from './realDataGuards.js'
 
 function isCreditMethod(m) {
   var s = String(m || '').toLowerCase()
@@ -16,7 +16,6 @@ function inRange(v, start, end) { var t = parseDate(v).getTime(); return t >= pa
 function startOfWeek(v) { var d = parseDate(v); var day = d.getDay() || 7; d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - day + 1); return d }
 function addDays(v, n) { var d = parseDate(v); d.setDate(d.getDate() + n); return d }
 
-var INVALID_STATUSES = new Set(['deleted', 'eliminado', 'eliminada', 'cancelled', 'canceled', 'cancelado', 'cancelada', 'voided', 'anulada', 'anulado'])
 var VALID_INVOICE_STATUSES = new Set(['paid', 'pagada', 'credit', 'credito', 'partial', 'parcial', 'open', 'issued', 'emitida', 'pendiente', 'pending', 'overdue', 'vencida', 'delivered', 'entregada'])
 
 function isValidInvoice(inv) {

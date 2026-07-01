@@ -20,7 +20,6 @@ const COLLECTION_NAMES = [
 ]
 
 const SINGLETON_NAMES = ['company', 'settings', 'cashRegister', 'categories', 'selectedBranch', 'documentCounters', 'reportStats', 'inventoryReports']
-const SaaS_NAMES = ['companies', 'activeCompanyId', 'companyMemberships', 'tenantData']
 
 const SYNC_DEBOUNCE_MS = 2000
 
@@ -40,116 +39,29 @@ let migrationDone = false
 let snapshotRetries = {}
 let snapshotResubTimers = {}
 let lastErrorTime = 0
-let pendingDeletes = {}  // { collectionName: Set<id> } — items locally deleted but not yet confirmed by remote
-let pendingDeleteRetryTimer = null
 const ERROR_COOLDOWN_MS = 15000
-const PENDING_DELETES_KEY = 'erp_pending_deletes'
 
-// ─── Pending deletes persistence (survives tab close / reload) ────
+// ─── Explicit delete tracking ────────────────────────────────────────
+// Documents the user has explicitly requested to delete.  If the
+// deleteDoc call fails (offline), the ID stays in this map so that
+// handleRemoteCollection won't re-import it from a remote snapshot.
+const explicitDeletes = {}  // { collectionName: Set<docId> }
 
-function loadPendingDeletes() {
-  try {
-    const raw = localStorage.getItem(PENDING_DELETES_KEY)
-    if (!raw) return {}
-    const parsed = JSON.parse(raw)
-    const result = {}
-    for (const [col, ids] of Object.entries(parsed)) {
-      if (Array.isArray(ids)) result[col] = new Set(ids)
-    }
-    return result
-  } catch {
-    return {}
-  }
-}
-
-function savePendingDeletes() {
-  try {
-    const serializable = {}
-    for (const [col, ids] of Object.entries(pendingDeletes)) {
-      if (ids.size > 0) serializable[col] = Array.from(ids)
-    }
-    localStorage.setItem(PENDING_DELETES_KEY, JSON.stringify(serializable))
-  } catch {
-    // localStorage may be full or unavailable; fail silently
-  }
-}
-
-function addPendingDelete(name, id) {
-  if (!pendingDeletes[name]) pendingDeletes[name] = new Set()
-  pendingDeletes[name].add(id)
-  savePendingDeletes()
-}
-
-function removePendingDelete(name, id) {
-  if (pendingDeletes[name]) {
-    pendingDeletes[name].delete(id)
-    savePendingDeletes()
-  }
-}
-
-async function immediateDeleteWithRetry(name, id, attempt = 0) {
-  const maxAttempts = 5
-  const uid = activeUid
-  if (!uid) return
-  try {
-    await deleteDoc(docRef_(uid, name, id))
-    removePendingDelete(name, id)
-  } catch (error) {
-    if (isBlocking(error)) return
-    if (attempt < maxAttempts) {
-      const delay = Math.min(30_000, Math.pow(2, attempt) * 2_000)
-      await new Promise((r) => setTimeout(r, delay))
-      return immediateDeleteWithRetry(name, id, attempt + 1)
-    }
-    savePendingDeletes()
-    const now = Date.now()
-    if (now - lastErrorTime > ERROR_COOLDOWN_MS) {
-      lastErrorTime = now
-      setSyncMeta({
-        syncStatus: 'error',
-        syncError: `No se pudo eliminar ${id} de ${name} tras ${maxAttempts + 1} intentos. Se reintentara al recargar.`
-      })
-    }
-  }
-}
-
-async function retryPendingDeletes() {
-  const uid = activeUid
-  if (!uid) return
-  let changed = false
-  for (const [name, ids] of Object.entries(pendingDeletes)) {
-    for (const id of Array.from(ids)) {
-      try {
-        await deleteDoc(docRef_(uid, name, id))
-        pendingDeletes[name].delete(id)
-        changed = true
-      } catch {
-        // Leave in pendingDeletes; will retry on next startup
-      }
-    }
-  }
-  if (changed) savePendingDeletes()
-}
-
-// ─── Version helper ─────────────────────────────────────────────
+// ─── Version helper ─────────────────────────────────────────────────
 
 function getUpdatedAt(item) {
   if (!item) return 0
   const raw = item.updatedAt
   if (!raw) return 0
-  // Firestore Timestamp
   if (typeof raw === 'object' && typeof raw.toDate === 'function') return raw.toDate().getTime()
-  // Date object
   if (raw instanceof Date) return raw.getTime()
-  // ISO string
   const parsed = new Date(raw)
   if (!Number.isNaN(parsed.getTime())) return parsed.getTime()
-  // Unix timestamp (number)
   if (typeof raw === 'number') return raw
   return 0
 }
 
-// ─── Path helpers ────────────────────────────────────────────────
+// ─── Path helpers ────────────────────────────────────────────────────
 
 function colRef(uid, name) {
   return firestoreCollection(db, 'accounts', uid, name)
@@ -163,7 +75,7 @@ function oldStateDocRef(uid) {
   return doc(db, 'accounts', uid, 'erp', 'state')
 }
 
-// ─── Public API ──────────────────────────────────────────────────
+// ─── Public API ──────────────────────────────────────────────────────
 
 export function startErpRealtimeSync(user) {
   stopErpRealtimeSync()
@@ -175,7 +87,6 @@ export function startErpRealtimeSync(user) {
   activeUid = user.uid
   syncSuspended = false
   previousState = null
-  pendingDeletes = loadPendingDeletes()
   useERPStore.setState({
     currentUser: {
       id: user.uid,
@@ -199,13 +110,10 @@ export function startErpRealtimeSync(user) {
 export function stopErpRealtimeSync() {
   if (syncTimer) window.clearTimeout(syncTimer)
   syncTimer = null
-  if (pendingDeleteRetryTimer) window.clearTimeout(pendingDeleteRetryTimer)
-  pendingDeleteRetryTimer = null
   Object.values(snapshotResubTimers).forEach(clearTimeout)
   snapshotResubTimers = {}
   snapshotRetries = {}
-  // pendingDeletes kept in localStorage — do NOT clear across sessions
-  
+
   unsubscribers.forEach((fn) => fn())
   unsubscribers = []
   unsubscribeStore?.()
@@ -222,7 +130,7 @@ export function stopErpRealtimeSync() {
   lastErrorTime = 0
 }
 
-// ─── Initialization ──────────────────────────────────────────────
+// ─── Initialization ──────────────────────────────────────────────────
 
 async function initializeUserSync(user) {
   const uid = user.uid
@@ -231,8 +139,11 @@ async function initializeUserSync(user) {
   // 1. Migrate from old monolithic erp/state to individual collections
   await migrateFromOldState(uid)
 
-  // 2. Load all collections
+  // 2. Migrate legacy soft-deleted documents (deletedAt) to physical delete
   setSyncMeta({ syncStatus: 'syncing' })
+  await cleanupLegacySoftDeletes(uid)
+
+  // 3. Load all collections
   const preloadedState = useERPStore.getState()
   const loaded = {}
   for (const name of COLLECTION_NAMES) {
@@ -240,10 +151,8 @@ async function initializeUserSync(user) {
       const snapshot = await getDocs(colRef(uid, name))
       const docs = snapshot.docs
         .map((d) => ({ id: d.id, ...d.data() }))
-        .filter((d) => !pendingDeletes[name]?.has(d.id))
+        .filter((d) => !d.deletedAt)  // skip legacy soft-deleted docs
       // GUARD: Never replace local data with empty remote results on initial load.
-      // Firestore may return an empty snapshot during QUIC protocol errors,
-      // network interruptions, or transient permission issues.
       if (docs.length === 0 && Array.isArray(preloadedState[name]) && preloadedState[name].length > 0) {
         loaded[name] = [...preloadedState[name]]
       } else {
@@ -261,16 +170,13 @@ async function initializeUserSync(user) {
       loaded[name] = null
     }
   }
-  for (const name of SaaS_NAMES) {
-    loaded[name] = useERPStore.getState()[name] || (name === 'tenantData' ? {} : null)
-  }
 
-  // 3. Apply loaded state
+  // 4. Apply loaded state
   applyingRemote = true
   useERPStore.setState((state) => ({ ...state, ...loaded, syncHydrated: true }))
   applyingRemote = false
 
-  // 4. Subscribe to real-time changes on each collection with auto-reconnect
+  // 5. Subscribe to real-time changes on each collection with auto-reconnect
   for (const name of COLLECTION_NAMES) {
     subscribeWithRetry(name, () =>
       onSnapshot(colRef(uid, name), (snapshot) => {
@@ -297,17 +203,20 @@ async function initializeUserSync(user) {
   syncReady = true
   setSyncMeta({ syncStatus: 'synced', syncError: '' })
 
-  // 4b. Retry any persisted pending deletes that weren't confirmed by Firestore
-  retryPendingDeletes().catch(() => {})
-
-  // 5. Subscribe to local store changes
+  // 6. Subscribe to local store changes
+  // Only syncs creations and updates to Firestore.
+  // Deletions are NEVER inferred from array diffs — they happen
+  // ONLY when an explicit user action calls deleteRemoteDoc().
+  let zustandPrevState = pickSyncState(useERPStore.getState())
   unsubscribeStore = useERPStore.subscribe((state) => {
+    const prev = zustandPrevState
+    zustandPrevState = pickSyncState(state)
     if (!syncReady || syncSuspended || applyingRemote || applyingSyncMeta || !activeUid) return
-    scheduleLocalSync(state)
+    scheduleLocalSync(state, prev)
   })
 }
 
-// ─── Migration ───────────────────────────────────────────────────
+// ─── Migration ───────────────────────────────────────────────────────
 
 async function migrateFromOldState(uid) {
   if (migrationDone) return
@@ -371,7 +280,7 @@ async function migrateFromOldState(uid) {
   useERPStore.setState({ syncError: '' })
 }
 
-// ─── Remote change handling ──────────────────────────────────────
+// ─── Remote change handling ──────────────────────────────────────────
 
 function handleRemoteCollection(name, snapshot) {
   if (applyingRemote) return
@@ -379,7 +288,17 @@ function handleRemoteCollection(name, snapshot) {
 
   const localState = useERPStore.getState()
   const localItems = Array.isArray(localState[name]) ? localState[name] : []
-  const remoteItems = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
+  let remoteItems = snapshot.docs
+    .map((d) => ({ id: d.id, ...d.data() }))
+    .filter((d) => !d.deletedAt)  // skip legacy soft-deleted docs
+
+  // ── Explicitly-deleted items ──────────────────────────────────
+  // If the user explicitly deleted a document but deleteDoc failed
+  // (offline), filter it out so it is never re-imported.
+  const currentExplicit = explicitDeletes[name]
+  if (currentExplicit && currentExplicit.size > 0) {
+    remoteItems = remoteItems.filter((d) => !currentExplicit.has(d.id))
+  }
 
   // GUARD: Never replace local data with empty remote results.
   if (remoteItems.length === 0 && localItems.length > 0) {
@@ -390,43 +309,13 @@ function handleRemoteCollection(name, snapshot) {
   const localMap = new Map(localItems.map((i) => [i.id, i]))
   const remoteMap = new Map(remoteItems.map((i) => [i.id, i]))
 
-  // ── Detect locally-purged items ────────────────────────────────
-  // Items that existed in the last-synced state, are gone from local,
-  // and are still present on Firestore → mark as pending deletes so
-  // the remote snapshot cannot re-introduce them.
-  if (previousState) {
-    const prevItems = Array.isArray(previousState[name]) ? previousState[name] : []
-    for (const item of prevItems) {
-      if (item?.id && !localMap.has(item.id) && remoteMap.has(item.id)) {
-        if (!pendingDeletes[name]) pendingDeletes[name] = new Set()
-        pendingDeletes[name].add(item.id)
-      }
-    }
-  }
-
-  // ── Clean up confirmed deletes ─────────────────────────────────
-  // Items no longer on Firestore → remove from pending tracking.
-  for (const id of [...(pendingDeletes[name] || [])]) {
-    if (!remoteMap.has(id)) pendingDeletes[name].delete(id)
-  }
-  savePendingDeletes()
-
   // ── Version-aware merge ────────────────────────────────────────
-  // Walk every document ID present in local OR remote.  For each:
-  //   - only remote  → new remote doc (unless locally purged)
-  //   - only local   → keep local (remote snapshot is stale/incomplete)
-  //   - both         → pick the version with the newer updatedAt
-  // This guarantees a local soft-delete (deletedAt + newer updatedAt)
-  // can never be reverted by a stale remote snapshot.
   const allIds = new Set([...localMap.keys(), ...remoteMap.keys()])
   const merged = []
 
   for (const id of allIds) {
     const local = localMap.get(id)
     const remote = remoteMap.get(id)
-
-    // Locally purged → never re-introduce
-    if (!local && pendingDeletes[name]?.has(id)) continue
 
     // Remote-only → new remote document
     if (!local && remote) {
@@ -452,9 +341,6 @@ function handleRemoteCollection(name, snapshot) {
   }
 
   useERPStore.setState({ [name]: merged })
-  // NOTE: previousState is deliberately NOT updated here so that the
-  // next writeDiff() can still detect and push pending local changes
-  // to Firestore.  Only flushChanges/writeDiff updates previousState.
   applyingRemote = false
 
   // Clear sync error on successful snapshot
@@ -465,29 +351,17 @@ function handleRemoteCollection(name, snapshot) {
   }
 }
 
-// ─── Local write direction ───────────────────────────────────────
+// ─── Local write direction ──────────────────────────────────────────
 
-function scheduleLocalSync(state) {
-  const nextState = pickSyncState(state)
+function scheduleLocalSync(state, _zustandPrevState) {
+  // Deletions are NEVER inferred from array diffs.  They happen ONLY
+  // when an explicit user action calls deleteRemoteDoc().
+  // This function only syncs creations and updates to Firestore.
+  scheduleFlushOnly(state)
+}
 
-  // Immediately detect and persist deletes, then fire deleteDoc without debounce.
-  // This ensures deletions survive tab close / network loss during the debounce window.
-  if (previousState) {
-    for (const name of COLLECTION_NAMES) {
-      const prevItems = Array.isArray(previousState[name]) ? previousState[name] : []
-      const nextItems = Array.isArray(nextState[name]) ? nextState[name] : []
-      const prevIds = new Set(prevItems.filter((i) => i?.id).map((i) => i.id))
-      const nextIds = new Set(nextItems.filter((i) => i?.id).map((i) => i.id))
-      for (const id of prevIds) {
-        if (!nextIds.has(id)) {
-          addPendingDelete(name, id)
-          immediateDeleteWithRetry(name, id).catch(() => {})
-        }
-      }
-    }
-  }
-
-  pendingState = nextState
+function scheduleFlushOnly(state) {
+  pendingState = pickSyncState(state)
   if (syncTimer) window.clearTimeout(syncTimer)
   syncTimer = window.setTimeout(() => {
     syncTimer = null
@@ -499,6 +373,7 @@ async function flushChanges() {
   if (!activeUid || syncSuspended || !pendingState || writeInFlight) return
 
   const nextState = pendingState
+
   if (previousState && stableStr(previousState) === stableStr(nextState)) {
     pendingState = null
     return
@@ -539,7 +414,7 @@ async function flushChanges() {
   }
 
   if (pendingState && (!previousState || stableStr(previousState) !== stableStr(pendingState))) {
-    scheduleLocalSync(pendingState)
+    scheduleFlushOnly(pendingState)
   }
 }
 
@@ -551,7 +426,9 @@ async function writeDiff(uid, prev, next) {
   let batch = writeBatch(db)
   let ops = 0
 
-  // Collections: diff and write individual docs
+  // Collections: diff and write individual docs (creates + updates only).
+  // Deletions are NEVER performed by writeDiff — they happen ONLY via
+  // an explicit user action that calls deleteRemoteDoc().
   for (const name of COLLECTION_NAMES) {
     const prevItems = Array.isArray(prev[name]) ? prev[name] : []
     const nextItems = Array.isArray(next[name]) ? next[name] : []
@@ -565,15 +442,6 @@ async function writeDiff(uid, prev, next) {
       const prevItem = prevMap.get(item.id)
       if (!prevItem || stableStr(prevItem) !== stableStr(item)) {
         batch.set(docRef_(uid, name, item.id), sanitize(item))
-        ops++
-        if (ops >= 500) { await batch.commit(); batch = writeBatch(db); ops = 0 }
-      }
-    }
-
-    // Deleted items
-    for (const [id] of prevMap) {
-      if (!nextMap.has(id)) {
-        batch.delete(docRef_(uid, name, id))
         ops++
         if (ops >= 500) { await batch.commit(); batch = writeBatch(db); ops = 0 }
       }
@@ -598,7 +466,79 @@ async function writeDiff(uid, prev, next) {
   if (ops > 0) await batch.commit()
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────
+// ─── deleteRemoteDoc — the ONLY way to delete from Firestore ────────
+// Called directly from store deletion actions (deleteInvoice, etc.).
+// Never inferred from array diffs.  If the call fails (offline), the
+// ID is tracked so handleRemoteCollection won't re-import it.
+
+export async function deleteRemoteDoc(collectionName, id) {
+  const uid = activeUid
+  if (!uid) throw new Error('No hay sesion activa de sincronizacion.')
+  try {
+    await deleteDoc(docRef_(uid, collectionName, id))
+    // Remove from tracking cache if previously added
+    if (explicitDeletes[collectionName]) {
+      explicitDeletes[collectionName].delete(id)
+      if (explicitDeletes[collectionName].size === 0) delete explicitDeletes[collectionName]
+    }
+    return true
+  } catch (error) {
+    // If offline, track so remote snapshot won't re-import the document
+    if (!explicitDeletes[collectionName]) explicitDeletes[collectionName] = new Set()
+    explicitDeletes[collectionName].add(id)
+    console.error(`[realtimeSync] Error al eliminar ${collectionName}/${id}. Se evitara la reimportacion:`, error?.message)
+    return false
+  }
+}
+
+// ─── Legacy soft-delete cleanup ─────────────────────────────────────
+// One-time migration: physically delete any documents that still carry
+// a deletedAt field (legacy soft-delete from previous versions).
+
+async function cleanupLegacySoftDeletes(uid) {
+  let totalPurged = 0
+  for (const name of COLLECTION_NAMES) {
+    try {
+      const snapshot = await getDocs(colRef(uid, name))
+      const legacy = snapshot.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .filter((d) => d.deletedAt)
+      if (legacy.length === 0) continue
+
+      let batch = writeBatch(db)
+      let ops = 0
+      for (const doc of legacy) {
+        batch.delete(docRef_(uid, name, doc.id))
+        ops++
+        if (ops >= 500) { await batch.commit(); batch = writeBatch(db); ops = 0 }
+      }
+      if (ops > 0) await batch.commit()
+      totalPurged += legacy.length
+    } catch {
+      // Silently skip collections that fail (e.g. permission issues)
+    }
+  }
+  if (totalPurged > 0) {
+    console.log(`[realtimeSync] Migracion: ${totalPurged} documentos legacy soft-delete purgados fisicamente.`)
+  }
+}
+
+// ─── Sync debug log ──────────────────────────────────────────────────
+// Exposes a live event log at window.__SYNC_LOG__ for diagnosing
+// deletion-detection issues.
+// Inspect from browser console: copy(JSON.stringify(window.__SYNC_LOG__, null, 2))
+const SYNC_LOG_MAX = 500
+if (typeof window !== 'undefined') {
+  if (!window.__SYNC_LOG__) window.__SYNC_LOG__ = []
+}
+function logSync(eventType, detail = {}) {
+  if (typeof window === 'undefined' || !window.__SYNC_LOG__) return
+  const entry = { t: new Date().toISOString(), type: eventType, ...detail }
+  window.__SYNC_LOG__.push(entry)
+  if (window.__SYNC_LOG__.length > SYNC_LOG_MAX) window.__SYNC_LOG__.shift()
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────
 
 function pickSyncState(state) {
   const picked = {}
@@ -606,9 +546,6 @@ function pickSyncState(state) {
     picked[name] = Array.isArray(state[name]) ? dedupe(state[name]) : []
   })
   SINGLETON_NAMES.forEach((name) => {
-    picked[name] = state[name]
-  })
-  SaaS_NAMES.forEach((name) => {
     picked[name] = state[name]
   })
   return picked
@@ -642,7 +579,6 @@ function stableStr(value) {
 function isBlocking(error) {
   if (/permission-denied|unauthenticated/i.test(error?.code || '')) return true
   if (error?.message?.includes('exceeds the maximum allowed size')) {
-    // Individual docs should never reach this limit, but handle gracefully
     suspendSync(error)
     return true
   }

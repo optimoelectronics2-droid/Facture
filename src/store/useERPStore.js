@@ -14,18 +14,16 @@ import {
 } from '../lib/inventoryEngine'
 import { assertOpenCashRegister, assertStockForLines, assertUniqueNcf, assertUniqueSerials, assertValidInvoiceDates, assertCustomerCreditLimit, assertPositiveAmount, assertInvoiceLineItems } from '../lib/validators'
 import {
-  buildCompany,
   defaultBranding,
   defaultFiscalSettings,
   normalizeCompany,
   scopeRecord,
-  tenantCollections,
-  tenantSingletons,
 } from '../lib/tenantEngine'
 import { buildCashCutReport, normalizeCashOpenInput } from '../lib/cashDeskEngine'
 import { addDaysIso, nowIso, todayIso } from '../lib/dateTime'
 import { sanitizeCashRegister, sanitizeOperationalData } from '../lib/realDataGuards'
 import { rebuildReports, auditIntegrity, detectDuplicates, reconcileInventory, reconcileFinancials, systemHealth } from '../lib/auditEngine'
+import { deleteRemoteDoc } from '../services/realtimeSync'
 
 const today = todayIso
 const now = nowIso
@@ -113,10 +111,7 @@ const defaultCompany = normalizeCompany({ ...emptyCompany, name: 'Empresa princi
 export const useERPStore = create(
   persist(
     (set, get) => ({
-      companies: [defaultCompany],
       activeCompanyId: defaultCompany.id,
-      companyMemberships: [{ companyId: defaultCompany.id, role: 'owner', status: 'active' }],
-      tenantData: {},
       company: defaultCompany,
       settings: defaultCompany,
       branches: [],
@@ -157,126 +152,21 @@ export const useERPStore = create(
 
       bootstrapTenantForUser(user = {}) {
         const state = get()
-        const owner = { id: user.uid || state.currentUser?.id || 'local-admin' }
-        const companies = (state.companies?.length ? state.companies : [normalizeCompany({ ...state.company, id: state.company?.id || defaultCompany.id }, owner)]).map((company) => normalizeCompany(company, owner))
-        const activeCompanyId = state.activeCompanyId || companies[0]?.id || defaultCompany.id
-        const activeCompany = companies.find((company) => company.id === activeCompanyId) || companies[0] || defaultCompany
-        const tenantData = {
-          ...(state.tenantData || {}),
-          [activeCompany.id]: pickTenantData({ ...state, company: activeCompany, settings: activeCompany }),
-        }
+        const ownerId = user.uid || state.currentUser?.id || 'local-admin'
+        const company = normalizeCompany(state.company || defaultCompany, { id: ownerId })
         set({
-          companies,
-          activeCompanyId: activeCompany.id,
-          companyMemberships: state.companyMemberships?.length ? state.companyMemberships : [{ companyId: activeCompany.id, role: 'owner', status: 'active' }],
-          tenantData,
-          company: activeCompany,
-          settings: activeCompany,
-        })
-        get().refreshReportStats()
-      },
-
-      createCompany(companyData = {}) {
-        const state = get()
-        const currentCompanyId = state.activeCompanyId || state.company?.id || defaultCompany.id
-        const currentTenantData = {
-          ...(state.tenantData || {}),
-          [currentCompanyId]: pickTenantData(state),
-        }
-        const company = normalizeCompany(buildCompany(companyData, state.currentUser))
-        const workspace = buildEmptyTenantData(company)
-        set({
-          companies: [company, ...state.companies.filter((item) => item.id !== company.id)],
-          companyMemberships: [{ companyId: company.id, role: 'owner', status: 'active' }, ...state.companyMemberships.filter((item) => item.companyId !== company.id)],
-          tenantData: { ...currentTenantData, [company.id]: workspace },
           activeCompanyId: company.id,
-          ...workspace,
-        })
-        get().addAudit('company.create', 'SaaS', null, { id: company.id, name: company.name })
-        get().refreshReportStats()
-        return company
-      },
-
-      updateCompany(companyId, updates = {}) {
-        const state = get()
-        const existing = state.companies.find((item) => item.id === companyId)
-        if (!existing) throw new Error('La empresa no existe.')
-        const company = normalizeCompany({ ...existing, ...updates, id: existing.id, updatedAt: now() }, state.currentUser)
-        set((current) => {
-          const workspace = current.tenantData?.[companyId] || pickTenantData({ ...current, company, settings: company })
-          const nextTenantData = {
-            ...(current.tenantData || {}),
-            [companyId]: { ...workspace, company, settings: company },
-          }
-          return {
-            companies: current.companies.map((item) => (item.id === companyId ? company : item)),
-            tenantData: nextTenantData,
-            ...(current.activeCompanyId === companyId ? { company, settings: company } : {}),
-          }
-        })
-        get().addAudit('company.update', 'SaaS', existing, company)
-        get().refreshReportStats()
-        return company
-      },
-
-      deleteCompany(companyId) {
-        const state = get()
-        if (state.companies.length <= 1) throw new Error('Debe existir al menos una empresa.')
-        const deleting = state.companies.find((item) => item.id === companyId)
-        if (!deleting) throw new Error('La empresa no existe.')
-        const currentCompanyId = state.activeCompanyId || state.company?.id || defaultCompany.id
-        const tenantData = {
-          ...(state.tenantData || {}),
-          [currentCompanyId]: pickTenantData(state),
-        }
-        delete tenantData[companyId]
-        const companies = state.companies.filter((item) => item.id !== companyId)
-        const nextCompany = companyId === state.activeCompanyId ? companies[0] : state.company
-        const nextWorkspace = tenantData[nextCompany.id] || buildEmptyTenantData(nextCompany)
-        set({
-          companies,
-          companyMemberships: state.companyMemberships.filter((item) => item.companyId !== companyId),
-          activeCompanyId: nextCompany.id,
-          tenantData: { ...tenantData, [nextCompany.id]: nextWorkspace },
-          ...nextWorkspace,
-          company: nextCompany,
-          settings: nextCompany,
-        })
-        get().addAudit('company.delete', 'SaaS', deleting, null)
-        get().refreshReportStats()
-        return deleting
-      },
-
-      switchCompany(companyId) {
-        const state = get()
-        const company = state.companies.find((item) => item.id === companyId)
-        if (!company) throw new Error('La empresa seleccionada no existe.')
-        const currentCompanyId = state.activeCompanyId || state.company?.id || defaultCompany.id
-        const tenantData = {
-          ...(state.tenantData || {}),
-          [currentCompanyId]: pickTenantData(state),
-        }
-        const workspace = tenantData[companyId] || buildEmptyTenantData(company)
-        set({
-          activeCompanyId: companyId,
-          tenantData: { ...tenantData, [companyId]: workspace },
-          ...workspace,
           company,
           settings: company,
         })
         get().refreshReportStats()
-        return company
       },
 
       updateFiscalSettings(partialSettings) {
         set((state) => {
           const fiscal = { ...defaultFiscalSettings, ...(state.company.fiscal || {}), ...partialSettings }
           const company = { ...state.company, fiscal, updatedAt: now() }
-          return {
-            company,
-            settings: { ...state.settings, fiscal },
-            companies: state.companies.map((item) => (item.id === company.id ? company : item)),
-          }
+          return { company, settings: { ...state.settings, fiscal } }
         })
         get().addAudit('fiscal_settings.update', 'Fiscal DGII', null, partialSettings)
         get().refreshReportStats()
@@ -291,11 +181,7 @@ export const useERPStore = create(
             branding,
             updatedAt: now(),
           }
-          return {
-            company,
-            settings: { ...state.settings, ...company },
-            companies: state.companies.map((item) => (item.id === company.id ? company : item)),
-          }
+          return { company, settings: { ...state.settings, ...company } }
         })
         get().addAudit('branding.update', 'Empresa', null, partialSettings)
       },
@@ -388,7 +274,6 @@ export const useERPStore = create(
         set((state) => ({
           company: { ...state.company, ...partialSettings, updatedAt: now() },
           settings: { ...state.settings, ...partialSettings, updatedAt: now() },
-          companies: state.companies.map((company) => (company.id === state.activeCompanyId ? { ...company, ...partialSettings, updatedAt: now() } : company)),
         }))
         get().addAudit('settings.update', 'Configuracion', null, partialSettings)
         get().refreshReportStats()
@@ -546,6 +431,7 @@ export const useERPStore = create(
         set((state) => ({ products: state.products.filter((item) => item.id !== productId) }))
         get().refreshReportStats()
         get().addAudit('product.delete', 'Inventario', product, { reason })
+        deleteRemoteDoc('products', productId).catch(() => {})
       },
 
       restoreProduct(productId) {
@@ -757,6 +643,7 @@ export const useERPStore = create(
         validateGlobalSerialIntegrity(get().products)
         get().refreshReportStats()
         get().addAudit('inventory.entry.delete', 'Inventario', entry, reason)
+        deleteRemoteDoc('productEntries', entryId).catch(() => {})
       },
 
       updateProductEntry(entryId, payload) {
@@ -796,6 +683,7 @@ export const useERPStore = create(
         set((state) => ({ customers: state.customers.filter((item) => item.id !== customerId) }))
         get().refreshReportStats()
         get().addAudit('customer.delete', 'Clientes', customer, null)
+        deleteRemoteDoc('customers', customerId).catch(() => {})
       },
 
       saveInvoiceDraft(invoiceData) {
@@ -1223,7 +1111,6 @@ export const useERPStore = create(
         const relatedPayments = get().payments.filter((payment) => payment.invoiceId === invoiceId && payment.status !== 'voided')
         const paidCash = relatedPayments.reduce((sum, payment) => sum + toNumber(payment.amount), 0)
         const reversalMovements = removesIssuedInvoice ? buildInvoiceReversalMovements(invoice, get().inventoryMovements, get().products, reason || 'Factura eliminada') : []
-        const userName = get().currentUser?.name || 'Sistema'
         set((state) => ({
           invoices: state.invoices.filter((item) => item.id !== invoiceId),
           products: removesIssuedInvoice ? state.products.map((product) => restoreProductFromDeletedInvoice(product, invoice)) : state.products,
@@ -1249,6 +1136,7 @@ export const useERPStore = create(
         validateGlobalSerialIntegrity(get().products)
         get().refreshReportStats()
         get().addAudit('invoice.delete', 'Facturacion', invoice, reason || 'Borrador eliminado')
+        deleteRemoteDoc('invoices', invoiceId).catch(() => {})
       },
 
       duplicateInvoice(invoiceId) {
@@ -1324,6 +1212,7 @@ export const useERPStore = create(
         set((state) => ({ conduces: state.conduces.filter((item) => item.id !== deliveryNoteId) }))
         get().refreshReportStats()
         get().addAudit('delivery_note.delete', 'Conduce', deliveryNote, reason)
+        deleteRemoteDoc('conduces', deliveryNoteId).catch(() => {})
       },
 
       convertDeliveryNoteToInvoice(deliveryNoteId, invoiceData = {}) {
@@ -1446,6 +1335,7 @@ export const useERPStore = create(
         set((state) => ({ quotes: state.quotes.filter((item) => !versionIds.has(item.id)) }))
         get().refreshReportStats()
         get().addAudit('quote.delete', 'Cotizaciones', quote, null)
+        deleteRemoteDoc('quotes', quoteId).catch(() => {})
       },
 
       newQuoteVersion(quoteId) {
@@ -1691,6 +1581,7 @@ export const useERPStore = create(
         }))
         get().refreshReportStats()
         get().addAudit('receivable.payment.delete', 'Cuentas por cobrar', payment, { reason })
+        deleteRemoteDoc('payments', paymentId).catch(() => {})
         return payment
       },
 
@@ -1750,6 +1641,7 @@ export const useERPStore = create(
         }))
         get().refreshReportStats()
         get().addAudit('receivable.delete', 'Cuentas por cobrar', receivable, { reason })
+        deleteRemoteDoc('receivables', receivable.id).catch(() => {})
         return receivable
       },
 
@@ -1860,6 +1752,7 @@ export const useERPStore = create(
         set((state) => ({ expenses: state.expenses.filter((item) => item.id !== payable.id) }))
         get().refreshReportStats()
         get().addAudit('payable.delete', 'Cuentas por pagar', payable, { reason })
+        deleteRemoteDoc('expenses', payable.id).catch(() => {})
         return payable
       },
 
@@ -2217,13 +2110,7 @@ export const useERPStore = create(
       storage: createJSONStorage(() => localStorage),
       version: 3,
       partialize: (state) => ({
-        companies: state.companies,
         activeCompanyId: state.activeCompanyId,
-        companyMemberships: state.companyMemberships,
-        tenantData: {
-          ...(state.tenantData || {}),
-          [state.activeCompanyId || state.company?.id || defaultCompany.id]: pickTenantData(state),
-        },
         company: state.company,
         settings: state.settings,
         branches: state.branches,
@@ -2324,12 +2211,6 @@ export const useERPStore = create(
               var total = (report.invalidStatusInvoices||0)+(report.orphanReceivables||0)+(report.orphanPayments||0)+(report.orphanInventoryMovements||0)+(report.orphanFinancialMovements||0)+(report.orphanCreditNotes||0)
               if (total > 0) {
                 console.warn('[ERP] Inconsistencias detectadas al cargar, NO se eliminan datos automaticamente:', report)
-                if (report.orphanReceivables > 0 || report.orphanPayments > 0) {
-                  var removedOrphans = state.cleanupOrphanReferences()
-                  if (removedOrphans.receivables > 0 || removedOrphans.payments > 0) {
-                    console.warn('[ERP] Se eliminaron referencias huerfanas seguras:', removedOrphans)
-                  }
-                }
               }
               state.recalculateFinancialFields()
               state.refreshReportStats()
@@ -2343,67 +2224,17 @@ export const useERPStore = create(
 if (import.meta.env.DEV) window.__STORE__ = useERPStore
 
 function migrateTenantState(state = {}) {
-  const legacyCompany = normalizeCompany({ ...defaultCompany, ...(state.company || state.settings || {}) })
-  const activeCompanyId = state.activeCompanyId || legacyCompany.id
-  const companies = (state.companies?.length ? state.companies : [legacyCompany]).map((company) => normalizeCompany(company))
-  const activeCompany = companies.find((company) => company.id === activeCompanyId) || companies[0] || legacyCompany
+  const company = normalizeCompany({ ...defaultCompany, ...(state.company || state.settings || {}) })
   return {
     ...state,
     customers: customerListWithGeneric(state.customers),
-    companies,
-    activeCompanyId: activeCompany.id,
-    companyMemberships: state.companyMemberships?.length ? state.companyMemberships : [{ companyId: activeCompany.id, role: 'owner', status: 'active' }],
-    tenantData: {
-      ...(state.tenantData || {}),
-          [activeCompany.id]: pickTenantData({ ...state, customers: customerListWithGeneric(state.customers), company: activeCompany, settings: activeCompany }),
-    },
-    company: activeCompany,
-    settings: { ...activeCompany, ...(state.settings || {}) },
-  }
-}
-
-function buildEmptyTenantData(company) {
-  return {
+    activeCompanyId: company.id,
     company,
-    settings: company,
-    branches: [],
-    stores: [],
-    users: [],
-    products: [],
-    productEntries: [],
-    inventoryMovements: [],
-    customers: customerListWithGeneric(),
-    suppliers: defaultSuppliers,
-    invoices: [],
-    quotes: [],
-    receivables: [],
-    payments: [],
-    financialMovements: [],
-    expenses: [],
-    conduces: [],
-    creditNotes: [],
-    cashRegister: emptyCashRegister,
-    serviceOrders: [],
-    taxSequences: defaultSequences,
-    auditLogs: [],
-    categories: defaultCategories,
-    selectedBranch: null,
-    documentCounters: {},
-    reportStats: createEmptyReportStats(),
-    inventoryReports: buildInventoryReports(),
+    settings: { ...company, ...(state.settings || {}) },
   }
 }
 
-function pickTenantData(state) {
-  const picked = {}
-  tenantCollections.forEach((name) => {
-    picked[name] = Array.isArray(state[name]) ? state[name] : []
-  })
-  tenantSingletons.forEach((name) => {
-    picked[name] = state[name]
-  })
-  return picked
-}
+
 
 function customerListWithGeneric(customers = []) {
   const list = Array.isArray(customers) ? customers : []

@@ -1,9 +1,9 @@
+import { INVALID_INVOICE_STATUSES } from './realDataGuards.js'
 import { invoiceModes } from './taxEngine.js'
 
 export const REPORT_ENGINE_VERSION = 2
 
 const VALID_INVOICE_STATUSES = new Set(['pagada', 'paid', 'credito', 'credit', 'parcial', 'partial', 'open', 'emitida', 'issued', 'borrador', 'draft', 'pendiente', 'pending', 'vencida', 'overdue', 'entregada', 'delivered'])
-const INVALID_INVOICE_STATUSES = new Set(['deleted', 'eliminado', 'cancelled', 'canceled', 'cancelado', 'cancelada', 'voided', 'anulada', 'anulado'])
 
 export function createEmptyReportStats() {
   const generatedAt = new Date().toISOString()
